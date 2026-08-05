@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://d02xslyd62j8h"]
 
-[ext_resource type="Script" uid="uid://bx7nlgq3j57cq" path="res://addons/commandrunner/cmd_runner.gd" id="1_sd5oa"]
+[ext_resource type="Script" uid="uid://vfnxsfb0jno" path="res://addons/commandrunner/cmd_runner.gd" id="1_sd5oa"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_sd5oa"]
 content_margin_left = 4.0
@@ -24,6 +24,7 @@ offset_right = -878.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_sd5oa")
+exec_const_on_type = false
 
 [node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=627700144]
 custom_minimum_size = Vector2(0, 50)
