@@ -1,0 +1,79 @@
+[gd_scene format=3 uid="uid://d02xslyd62j8h"]
+
+[ext_resource type="Script" uid="uid://bx7nlgq3j57cq" path="res://addons/commandrunner/cmd_runner.gd" id="1_sd5oa"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_sd5oa"]
+content_margin_left = 4.0
+content_margin_top = 5.0
+content_margin_right = 6.0
+content_margin_bottom = 5.0
+bg_color = Color(0.103039995, 0.103039995, 0.103039995, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+corner_detail = 4
+
+[sub_resource type="GDScriptSyntaxHighlighter" id="GDScriptSyntaxHighlighter_2pf8l"]
+
+[node name="CmdRunner" type="VBoxContainer" unique_id=326490867]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_right = -878.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_sd5oa")
+
+[node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=627700144]
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+size_flags_vertical = 3
+follow_focus = true
+scroll_hint_mode = 1
+
+[node name="HistoryContainer" type="VBoxContainer" parent="ScrollContainer" unique_id=1235918650]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+alignment = 2
+
+[node name="RichTextLabel" type="RichTextLabel" parent="ScrollContainer/HistoryContainer" unique_id=999595899]
+visible = false
+layout_mode = 2
+text = "command 
+history
+ text"
+fit_content = true
+
+[node name="WarningLabel" type="RichTextLabel" parent="." unique_id=1871514137]
+unique_name_in_owner = true
+layout_mode = 2
+bbcode_enabled = true
+text = "[color=red]Warnings 
+here[/color]"
+fit_content = true
+scroll_active = false
+
+[node name="CmdCodeEdit" type="CodeEdit" parent="." unique_id=274863496]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/normal = SubResource("StyleBoxFlat_sd5oa")
+placeholder_text = "cmd"
+wrap_mode = 1
+scroll_fit_content_height = true
+syntax_highlighter = SubResource("GDScriptSyntaxHighlighter_2pf8l")
+highlight_all_occurrences = true
+gutters_draw_line_numbers = true
+gutters_line_numbers_min_digits = 1
+
+[node name="CmdRunButton" type="Button" parent="." unique_id=1620563512]
+unique_name_in_owner = true
+layout_mode = 2
+text = "run"
+
+[connection signal="gui_input" from="CmdCodeEdit" to="." method="_on_gui_input"]
+[connection signal="symbol_hovered" from="CmdCodeEdit" to="." method="_on_symbol_hovered"]
+[connection signal="text_changed" from="CmdCodeEdit" to="." method="_on_text_changed"]
+[connection signal="text_set" from="CmdCodeEdit" to="." method="_on_text_changed"]
+[connection signal="pressed" from="CmdRunButton" to="." method="_on_cmd_run_button_pressed"]
