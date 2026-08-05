@@ -1,7 +1,7 @@
 extends RefCounted
 class_name CommandRunnerCustomCommands
 
-var cmd_runner : CommandRunner
+var cmd_runner: CommandRunner
 
 ## all functions that start with _cmd_ can be run by typing the rest of the function name. No parenthesis 
 ## these may take parameters, comma separated
@@ -39,17 +39,17 @@ func _cmdc_help():
 			while doc_start_at >= 0:
 				var prev_line := source.rfind("\n", doc_start_at)
 				#if mname.ends_with("test"): print("'"+source.substr(prev_line+1, doc_start_at-prev_line)+"'")
-				if prev_line >= 0 and source.substr(prev_line+1, doc_start_at-prev_line).strip_edges().begins_with("##"):
-					doc_start_at = prev_line-1
+				if prev_line >= 0 and source.substr(prev_line + 1, doc_start_at - prev_line).strip_edges().begins_with("##"):
+					doc_start_at = prev_line - 1
 				else:
 					break
 			if doc_start_at != method_at - 7:
-				var docs := source.substr(doc_start_at,method_at-doc_start_at - 6).replace("\n", " ").remove_chars("#").strip_edges()
+				var docs := source.substr(doc_start_at, method_at - doc_start_at - 6).replace("\n", " ").remove_chars("#").strip_edges()
 				cmd_name += " [color=cyan][i]%s[/i][/color]" % docs
 
 		cmds.push_back(cmd_name)
 
-	cmd_runner.output("help\ncmds:\n%s\ninputs: %s\nvars: %s" % ["\n".join(cmds), cmd_runner._cmd_input_names, cmd_runner.dynamic_cmd_items])
+	cmd_runner.output("help\ncmds:\n%s\ninputs: %s\nvars: %s" % ["\n".join(cmds), cmd_runner._cmd_input_names, cmd_runner.get_all_vars()])
 	
 
 ## Toggle verbose output mode
@@ -68,30 +68,14 @@ func _cmd_cls():
 	# Defer to not add this command to the history
 	cmd_runner.clear_history.call_deferred()
 
-func _cmd_docs(target : Object):
+func _cmd_docs(target: Object = null):
 	if target == null:
-		cmd_runner.outputerr("No target!")
+		cmd_runner.outputerr("No target to open docs!")
 		return false
-	# todo test
 	EditorInterface.get_script_editor().goto_help("class_name:%s" % target.get_class())
 
-## open a new floating inspector
-func _cmd_inspect(target : Object):
-	#if last_result !=null and last_result is Object:
-		#target = last_result
-	#if target == null:
-		#_run_expression("self")
-		#if last_result is Object:
-			#target = last_result
-	if target == null:
-		cmd_runner.outputerr("No target Object to inspect!")
-		return false
-	cmd_runner.output("inspecting %s" % target)
-	_open_in_new_inspector(target)
-	return true
-
 ## create a new instance of a class. Useful if you need access to something from the editor, like JSON # todo can be automatic?
-func _cmd_new(var_name: String, opt_class_name:=""):
+func _cmd_new(var_name: String, opt_class_name := ""):
 	var new_class_name := var_name
 	if opt_class_name != "":
 		new_class_name = opt_class_name
@@ -109,7 +93,10 @@ func _cmd_new(var_name: String, opt_class_name:=""):
 	if new_class == null:
 		cmd_runner.outputerr("Cannot make class %s" % new_class_name)
 		return false
-	_make_var(var_name, new_class)
+
+	var worked := cmd_runner.add_var(var_name, new_class)
+	if not worked:
+		return false
 	if made_new:
 		cmd_runner.output("made new class %s %s" % [var_name, new_class_name])
 	else:
@@ -118,34 +105,19 @@ func _cmd_new(var_name: String, opt_class_name:=""):
 
 ## create a new variable `var name value`
 func _cmd_var(var_name: String, value):
-	if cmd_runner.base_cmd_input_names.has(var_name):
-		cmd_runner.outputerr("Invalid name `%s` overrides existing" % var_name)
-		return false
-	var prefix_action := "Updated" if cmd_runner.dynamic_cmd_items.has(var_name) else "Saved"
-	_make_var(var_name, value, true)
-	cmd_runner.output("%s var `%s` to value `%s`" % [prefix_action, var_name, value], true)
+	var prefix_action := "Updated" if cmd_runner.has_var(var_name) else "Saved"
+	if cmd_runner.add_var(var_name, value):
+		cmd_runner.output("%s var `%s` to value `%s`" % [prefix_action, var_name, value], true)
 	return true
 
-func _make_var(saved_name: String, value, overwrite:=false):
-	if not overwrite and cmd_runner.base_cmd_input_names.has(saved_name):
-		cmd_runner.outputerr("Invalid name `%s` overrides existing" % saved_name)
-		return false
-	cmd_runner.dynamic_cmd_items[saved_name] = value
-	cmd_runner.update_inputs()
-
 func _cmd_erase(var_name: String):
-	if not cmd_runner.dynamic_cmd_items.has(var_name) and var_name != "allvars":
-		cmd_runner.outputerr("Cannot erase var `%s`, does not exist" % var_name)
-		return false
 	if var_name == "allvars":
 		# erase all
-		cmd_runner.dynamic_cmd_items.clear()
+		cmd_runner.remove_all_vars()
 		cmd_runner.output("Erased allvars")
-		cmd_runner.update_inputs()
 		return true
-	var prev_dyn_value = cmd_runner.dynamic_cmd_items[var_name]
-	cmd_runner.dynamic_cmd_items.erase(var_name)
-	cmd_runner.update_inputs()
+	var prev_dyn_value = cmd_runner.get_var_value(var_name)
+	cmd_runner.remove_var(var_name)
 	cmd_runner.output("Erased var `%s`, previously %s" % [var_name, prev_dyn_value])
 	return true
 
@@ -164,8 +136,20 @@ class SignalTracker extends RefCounted:
 			#print(s)
 		print(s)
 
-func _cmd_track(signame: String, target_obj : Object = null):
+func _get_sig_track_name(target_obj):
+	var targ_name := ""
+	if target_obj is Node:
+		targ_name = target_obj.name
+	elif target_obj is Resource:
+		targ_name = "%s-%s" % [target_obj.get_class(), target_obj.get_rid()]
+	else:
+		# todo remove randomness?
+		targ_name = "%s-r%s" % [target_obj.get_class(), randi() % 10000]
+		# targ_name = "%s" % target_obj.get_class()
 
+	return targ_name
+
+func _cmd_track(signame: String, target_obj: Object = null):
 	if target_obj == null:
 		target_obj = cmd_runner.base_instance_node
 
@@ -173,73 +157,81 @@ func _cmd_track(signame: String, target_obj : Object = null):
 		cmd_runner.outputerr("Cannot track signal `%s` on object `%s`: not found" % [signame, "null" if not target_obj else target_obj.name])
 		return true
 
+	# get the selected signal from the Signal dock somehow?
 	#var siglist := target_obj.get_signal_list()
 	#for sig in siglist:
 		#if sig["name"] != signame:
 			#return
 		#for arg in sig["args"]:
 
-	var targ_name := ""
-	if target_obj is Node:
-		targ_name = target_obj.name
-	elif target_obj is Resource:
-		targ_name = "%s-%s" % [target_obj.get_class(),  target_obj.get_rid()]
-	else:
-		targ_name = "%s-r%s" % [target_obj.get_class(), randi() % 10000]
-	var vname := "track_%s_%s"% [signame, targ_name]
+	var targ_name = _get_sig_track_name(target_obj)
+	var vname := "track_%s_%s" % [signame, targ_name]
 	var sig_tracker := SignalTracker.new()
 	sig_tracker.vname = vname
 	sig_tracker.name = signame
 	sig_tracker.obj_name = targ_name
 	sig_tracker.cmd_runner = cmd_runner
 	target_obj.connect(signame, sig_tracker.report)
-	cmd_runner.dynamic_cmd_items[vname] = sig_tracker
-	cmd_runner.output("Tracking signal `%s` on `%s`" % [vname, targ_name])
-	cmd_runner.update_inputs()
+
+	if cmd_runner.add_var(vname, sig_tracker):
+		cmd_runner.output("Tracking signal `%s` on `%s`" % [vname, targ_name])
 	return true
 
-func _cmd_trackclear(signame: String, target_obj : Object = null):
-	var to_rem := []
+func _cmd_trackclear(signame: String, target_obj: Object = null):
 	if signame != "":
-		pass
 		if target_obj == null:
 			target_obj = cmd_runner.base_instance_node
 		if target_obj == null or not target_obj.has_signal(signame):
 			cmd_runner.outputerr("Cannot trackclear signal `%s` on object `%s`: not found" % [signame, "null" if not target_obj else target_obj.name])
 			return true
-		var targ_name := ""
-		if target_obj is Node:
-			targ_name = target_obj.name
-		elif target_obj is Resource:
-			targ_name = "%s-%s" % [target_obj.get_class(),  target_obj.get_rid()]
-		else:
-			targ_name = "%s-r%s" % [target_obj.get_class(), randi() % 10000]
-		var vname := "track_%s_%s"% [signame, targ_name]
-		if not cmd_runner.dynamic_cmd_items.has(vname):
+
+		var targ_name = _get_sig_track_name(target_obj)
+		var vname := "track_%s_%s" % [signame, targ_name]
+		if not cmd_runner.has_var(vname):
 			cmd_runner.outputerr("Cannot trackclear signal `%s`: not found" % [vname])
 			return true
-		cmd_runner.dynamic_cmd_items.erase(vname)
-	else:
-		for dci_name in cmd_runner.dynamic_cmd_items:
-			var val = cmd_runner.dynamic_cmd_items[dci_name]
-			if val is SignalTracker:
-				to_rem.push_back(val)
+		cmd_runner.remove_var(vname)
+		cmd_runner.output("Removed signal tracking for signal `%s`" % signame)
+		return true
+
+	var to_rem := []
+	var all_vars := cmd_runner.get_all_vars()
+	for dci_name in all_vars:
+		var val = all_vars[dci_name]
+		if val is SignalTracker:
+			to_rem.push_back(val)
 	for v in to_rem:
-		cmd_runner.dynamic_cmd_items.erase(v)
-	cmd_runner.update_inputs()
-	cmd_runner.output("cleared signal trackings")
+		all_vars.erase(v)
+	cmd_runner._update_inputs()
+	cmd_runner.output("Cleared all signal tracking")
 	return true
 
 ## Use EditorDebugger to focus on a node
-func _cmd_focus_on(target : Node):
-	if target == null or cmd_runner._editor_debugger == null:
+func _cmd_focus_on(target: Node = null):
+	if target == null or cmd_runner.editor_debugger == null:
+		cmd_runner.output("No target or no EditorDebugger")
 		return
-	if cmd_runner._editor_debugger.has_method("_focus_in_tree"):
-		cmd_runner._editor_debugger._focus_in_tree(target)
+	if cmd_runner.editor_debugger.has_method("_focus_in_tree"):
+		cmd_runner.editor_debugger._focus_in_tree(target)
 	else:
 		cmd_runner.outputerr("Cannot focus on target, EditorDebugger api")
 	return true
 
+
+## open a new floating inspector
+func _cmd_inspect(target: Object = null):
+	#if last_result !=null and last_result is Object:
+		#target = last_result
+	#if target == null:
+		#_run_expression("self")
+		#if last_result is Object:
+			#target = last_result
+	if target == null:
+		cmd_runner.outputerr("No target Object to inspect!")
+		return false
+	cmd_runner.output("inspecting %s" % target)
+	_open_in_new_inspector(target)
+	return true
 
 func _open_in_new_inspector(obj: Object) -> void:
 	if obj == null:

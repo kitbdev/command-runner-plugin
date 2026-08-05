@@ -21,24 +21,24 @@ class_name CommandRunner
 @onready var _history_container: VBoxContainer = %HistoryContainer
 
 
-var _editor_debugger: Control
+var editor_debugger: Control
 
 var _cmd_hist := []
 var _cmd_hist_index := 0
 var _max_hist_size := 100
 
-var dynamic_cmd_items := {}
+var _dynamic_cmd_items := {}
 
 var _save_path := ".godot/editor/cmd_runner.cfg"
 
 var _cmd_inputs := []
 var _cmd_input_names := []
-var base_cmd_input_names := []
+var _base_cmd_input_names := []
 
 var _base_instance_node: Node
 var _last_result = null
 
-var _custom_commands : CommandRunnerCustomCommands
+var _custom_commands: CommandRunnerCustomCommands
 
 func _ready() -> void:
 	if is_part_of_edited_scene():
@@ -163,40 +163,70 @@ func _preprocess_cmd(cmd_text: String) -> Array:
 	return [cmd_text, awaitable, const_cmd_check_portion]
 
 func _clear_editor_debugger():
-	_editor_debugger = null
+	editor_debugger = null
 
-func update_inputs():
-	if _editor_debugger == null:
-		_editor_debugger = EditorInterface.get_base_control().find_child("EditorDebugger", true, false)
-		if _editor_debugger != null and not _editor_debugger.tree_exited.is_connected(_clear_editor_debugger):
-			_editor_debugger.tree_exited.connect(_clear_editor_debugger)
+func get_all_vars() -> Dictionary:
+	return _dynamic_cmd_items
+
+func has_var(var_name: String) -> bool:
+	return _dynamic_cmd_items.has(var_name)
+
+func get_var_value(var_name: String) -> Variant:
+	return _dynamic_cmd_items[var_name]
+
+func add_var(var_name: String, value) -> bool:
+	if _base_cmd_input_names.has(var_name):
+		outputerr("Invalid name `%s` overrides existing" % var_name)
+		return false
+	_dynamic_cmd_items[var_name] = value
+	_update_inputs()
+	return true
+
+func remove_var(var_name) -> bool:
+	if not _dynamic_cmd_items.has(var_name):
+		outputerr("Cannot erase var `%s`, does not exist" % var_name)
+		return false
+	_dynamic_cmd_items.erase(var_name)
+	_update_inputs()
+	return true
+
+func remove_all_vars() -> bool:
+	_dynamic_cmd_items.clear()
+	_update_inputs()
+	return true
+
+func _update_inputs():
+	if editor_debugger == null:
+		editor_debugger = EditorInterface.get_base_control().find_child("EditorDebugger", true, false)
+		if editor_debugger != null and not editor_debugger.tree_exited.is_connected(_clear_editor_debugger):
+			editor_debugger.tree_exited.connect(_clear_editor_debugger)
 
 	_base_instance_node = null
 
-	if _editor_debugger != null:
+	if editor_debugger != null:
 		# get selected item
-		if "_tree_view" not in _editor_debugger or not _editor_debugger.has_method("_get_node_from_view"):
+		if "_tree_view" not in editor_debugger or not editor_debugger.has_method("_get_node_from_view"):
 			outputerr("EditorDebugger API changed!")
 			return
 
 		# todo this isn't updated...
-		var node_view = _editor_debugger._tree_view.get_selected()
-		_base_instance_node = _editor_debugger._get_node_from_view(node_view)
+		var node_view = editor_debugger._tree_view.get_selected()
+		_base_instance_node = editor_debugger._get_node_from_view(node_view)
 
 	# If multiple selections are needed, get in command on EditorInterface
 	var selection = EditorInterface.get_selection().get_selected_nodes()[0] if !EditorInterface.get_selection().get_selected_nodes().is_empty() else null
 
 
-	_cmd_inputs = [EditorInterface, selection, ClassDB, dynamic_cmd_items.duplicate(), self, _custom_commands]
-	base_cmd_input_names = ["EditorInterface", "sel", "ClassDB", "allvars", "cmd_runner", "cmds"]
-	_cmd_input_names = base_cmd_input_names.duplicate()
+	_cmd_inputs = [EditorInterface, selection, ClassDB, _dynamic_cmd_items.duplicate(), self, _custom_commands]
+	_base_cmd_input_names = ["EditorInterface", "sel", "ClassDB", "allvars", "cmd_runner", "cmds"]
+	_cmd_input_names = _base_cmd_input_names.duplicate()
 	
-	for dynamic_cmd_item_name in dynamic_cmd_items:
+	for dynamic_cmd_item_name in _dynamic_cmd_items:
 		if not dynamic_cmd_item_name is String:
 			outputerr("invalid dynamic cmd item ", dynamic_cmd_item_name)
 			continue
 		_cmd_input_names.push_back(dynamic_cmd_item_name)
-		_cmd_inputs.push_back(dynamic_cmd_items[dynamic_cmd_item_name])
+		_cmd_inputs.push_back(_dynamic_cmd_items[dynamic_cmd_item_name])
 
 
 func _run_expression(cmd_text: String) -> bool:
@@ -204,7 +234,6 @@ func _run_expression(cmd_text: String) -> bool:
 		# Not needed, no selection is fine
 		#outputerr("No node selected. cmd: `%s`" % [cmd_text])
 		#return false
-
 	var expr := Expression.new()
 	var err := expr.parse(cmd_text, _cmd_input_names)
 	if err != OK:
@@ -249,7 +278,7 @@ func _run_cmds() -> void:
 		# clear if different type? idk
 		# dont save if already the same as other previous commands? move old commands instead of re-adding?
 	
-	update_inputs()
+	_update_inputs()
 	#verbose_mode = true
 
 	var cmds := cmd_txt.strip_edges().replace(";", "\n").split("\n", false)
@@ -306,7 +335,7 @@ func _check_expression(cmd_text: String, check_exec: Array) -> String:
 
 func _update_warning_label() -> void:
 	var cmd_txt := _cmd_input.text
-	update_inputs()
+	_update_inputs()
 	var cmds := cmd_txt.strip_edges().replace(";", "\n").split("\n", false)
 	
 	var warnings := []
