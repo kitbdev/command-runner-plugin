@@ -87,19 +87,22 @@ func clear_history():
 	scroll_container.scroll_vertical = 0
 
 
-func output(output_text: String, verbose := false):
+func output(output_text: String, is_escaped: bool = false):
 	if toast_output:
 		EditorInterface.get_editor_toaster().push_toast(output_text, EditorToaster.SEVERITY_INFO)
-	_add_output_label("[color=gray]%s[/color]" % _bbescape(output_text))
+	if not is_escaped:
+		output_text = _bbescape(output_text)
+	_add_output_label("[color=gray]%s[/color]" % output_text)
 	if print_output:
 		print_rich(output_text)
 		#print(output_text)
 
-func outputerr(output_text: String, verbose := false):
+func outputerr(output_text: String):
 	if toast_output:
 		EditorInterface.get_editor_toaster().push_toast(output_text, EditorToaster.SEVERITY_ERROR)
 	
-	_add_output_label("[color=red]%s[/color]" % _bbescape(output_text))
+	output_text = _bbescape(output_text)
+	_add_output_label("[color=red]%s[/color]" % output_text)
 	if print_output:
 		printerr(output_text)
 
@@ -206,7 +209,7 @@ func _update_inputs():
 	if editor_debugger != null:
 		# get selected item
 		if "_tree_view" not in editor_debugger or not editor_debugger.has_method("_get_node_from_view"):
-			outputerr("EditorDebugger API changed!")
+			outputerr("EditorDebugger API changed")
 			return
 
 		# todo this isn't updated...
@@ -214,7 +217,7 @@ func _update_inputs():
 		_base_instance_node = editor_debugger._get_node_from_view(node_view)
 
 	# If multiple selections are needed, get in command on EditorInterface
-	var selection = EditorInterface.get_selection().get_selected_nodes()[0] if !EditorInterface.get_selection().get_selected_nodes().is_empty() else null
+	var selection = EditorInterface.get_selection().get_selected_nodes()[0] if not EditorInterface.get_selection().get_selected_nodes().is_empty() else null
 
 
 	_cmd_inputs = [EditorInterface, selection, ClassDB, _dynamic_cmd_items.duplicate(), self, _custom_commands]
@@ -223,7 +226,7 @@ func _update_inputs():
 	
 	for dynamic_cmd_item_name in _dynamic_cmd_items:
 		if not dynamic_cmd_item_name is String:
-			outputerr("invalid dynamic cmd item ", dynamic_cmd_item_name)
+			outputerr("invalid dynamic cmd item %s" % dynamic_cmd_item_name)
 			continue
 		_cmd_input_names.push_back(dynamic_cmd_item_name)
 		_cmd_inputs.push_back(_dynamic_cmd_items[dynamic_cmd_item_name])
@@ -240,13 +243,13 @@ func _run_expression(cmd_text: String) -> bool:
 		outputerr("Parse error. cmd: `%s` error:%s %s" % [cmd_text, err, expr.get_error_text()])
 		return false
 
-	if verbose_mode: output("Running cmd: `%s` on node `%s` (%s)" % [cmd_text, _base_instance_node.name if _base_instance_node else "none", _base_instance_node.get_class() if _base_instance_node else "none"], true)
+	if verbose_mode: output("Running cmd: `%s` on node `%s` (%s)" % [cmd_text, _base_instance_node.name if _base_instance_node else "none", _base_instance_node.get_class() if _base_instance_node else "none"])
 	var result = expr.execute(_cmd_inputs, _base_instance_node, true, false)
 	if expr.has_execute_failed():
 		outputerr("Exec failed: %s" % expr.get_error_text())
 		return false
 
-	if verbose_mode: output("cmd Result: `%s`" % [result], true)
+	if verbose_mode: output("cmd Result: `%s`" % [result])
 	else: output("cmd %s `%s` = `%s`" % [_base_instance_node.name if _base_instance_node else "", cmd_text, result])
 	_last_result = result
 	return true

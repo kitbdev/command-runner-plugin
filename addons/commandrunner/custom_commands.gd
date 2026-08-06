@@ -3,17 +3,20 @@ class_name CommandRunnerCustomCommands
 
 var cmd_runner: CommandRunner
 
-## all functions that start with _cmd_ can be run by typing the rest of the function name. No parenthesis 
-## these may take parameters, comma separated
-## _cmdc are constant and will be executed before submitting
+## All functions that start with `_cmd_` can be run by typing the rest of the function name. No parenthesis 
+## These may take parameters, comma separated
+## `_cmdc_` are constant and will be executed before submitting
 
-## hi
-func _cmd_test():
-	print("test method")
+## test
+# func _cmd_test():
+# 	print("test method")
 
-func _cmdc_testc():
-	print("testc method")
+# func _cmdc_testc():
+# 	print("testc method")
 
+const BUILTIN_TYPES: Array = ["NIL", "bool", "int", "float", "String", "Vector2", "Vector2I", "Rect2", "Rect2I", "Vector3", "Vector3I", "Transform2D", "Vector4", "Vector4I", "Plane", "Quaternion", "Aabb", "Basis", "Transform3D", "Projection", "Color", "StringName", "NodePath", "Rid", "Object", "Callable", "Signal", "Dictionary", "Array", "PackedByteArray", "PackedInt32Array", "PackedInt64Array", "PackedFloat32Array", "PackedFloat64Array", "PackedStringArray", "PackedVector2Array", "PackedVector3Array", "PackedColorArray", "PackedVector4Array", "MAX", ]
+
+## Output list of commands and variables.
 func _cmdc_help():
 	var cmds := []
 	for method in get_method_list():
@@ -27,11 +30,16 @@ func _cmdc_help():
 			continue
 		
 		#(method.args as Array).reduce(func(acc, val): return val.name)
-		var names := (method.args as Array).map(func(val): return val.name)
+		var names := (method.args as Array).map(func(val):
+			var type := ""
+			if val.type != 0:
+				type = ":%s" % BUILTIN_TYPES[val.type]
+			return val.name + type
+		)
 		if not names.is_empty():
 			cmd_name += "(" + ",".join(names) + ")"
 		
-		# get descriptions by parsing the file?
+		# Get descriptions by parsing the file for doc comments
 		var source := (get_script() as Script).source_code
 		var method_at := source.find(mname)
 		if method_at >= 0:
@@ -49,7 +57,7 @@ func _cmdc_help():
 
 		cmds.push_back(cmd_name)
 
-	cmd_runner.output("help\ncmds:\n%s\ninputs: %s\nvars: %s" % ["\n".join(cmds), cmd_runner._cmd_input_names, cmd_runner.get_all_vars()])
+	cmd_runner.output("help\ncmds:\n%s\ninputs: %s\nvars: %s" % ["\n".join(cmds), cmd_runner._cmd_input_names, cmd_runner.get_all_vars()], true)
 	
 
 ## Toggle verbose output mode
@@ -68,14 +76,16 @@ func _cmd_cls():
 	# Defer to not add this command to the history
 	cmd_runner.clear_history.call_deferred()
 
+## Open Editor Help documentation for the class of the given object.
 func _cmd_docs(target: Object = null):
 	if target == null:
 		cmd_runner.outputerr("No target to open docs!")
 		return false
 	EditorInterface.get_script_editor().goto_help("class_name:%s" % target.get_class())
 
-## create a new instance of a class. Useful if you need access to something from the editor, like JSON # todo can be automatic?
+## create a new instance of a class. Useful if you need access to something from the editor, like JSON 
 func _cmd_new(var_name: String, opt_class_name := ""):
+	# todo can be automatic?
 	var new_class_name := var_name
 	if opt_class_name != "":
 		new_class_name = opt_class_name
@@ -103,13 +113,14 @@ func _cmd_new(var_name: String, opt_class_name := ""):
 		cmd_runner.output("got class %s %s" % [var_name, new_class_name])
 	return true
 
-## create a new variable `var name value`
+## Create a new variable `var name value`
 func _cmd_var(var_name: String, value):
 	var prefix_action := "Updated" if cmd_runner.has_var(var_name) else "Saved"
 	if cmd_runner.add_var(var_name, value):
 		cmd_runner.output("%s var `%s` to value `%s`" % [prefix_action, var_name, value], true)
 	return true
 
+## Remove a variable. Use `allvars` to erase all.
 func _cmd_erase(var_name: String):
 	if var_name == "allvars":
 		# erase all
@@ -149,6 +160,7 @@ func _get_sig_track_name(target_obj):
 
 	return targ_name
 
+## Track a signal on an object. Prints a message when the signal fires.
 func _cmd_track(signame: String, target_obj: Object = null):
 	if target_obj == null:
 		target_obj = cmd_runner.base_instance_node
@@ -177,6 +189,7 @@ func _cmd_track(signame: String, target_obj: Object = null):
 		cmd_runner.output("Tracking signal `%s` on `%s`" % [vname, targ_name])
 	return true
 
+## Stop tracking a signal on an object, or stop tracking all.
 func _cmd_trackclear(signame: String, target_obj: Object = null):
 	if signame != "":
 		if target_obj == null:
@@ -218,7 +231,7 @@ func _cmd_focus_on(target: Node = null):
 	return true
 
 
-## open a new floating inspector
+## Open a new floating inspector
 func _cmd_inspect(target: Object = null):
 	#if last_result !=null and last_result is Object:
 		#target = last_result
