@@ -2,7 +2,7 @@
 extends EditorPlugin
 
 var dock : EditorDock
-const CMD_RUNNER = preload("res://addons/commandrunner/CmdRunner.tscn")
+const CMD_RUNNER = preload("CmdRunner.tscn")
 
 func _enter_tree() -> void:
 	var cmd_runner := CMD_RUNNER.instantiate()
