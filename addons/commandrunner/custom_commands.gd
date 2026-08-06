@@ -379,3 +379,22 @@ func _open_in_new_inspector(obj: Object) -> void:
 	#close_btn.pressed.connect(_close_inspector)
 	if obj is Node:
 		(obj as Node).renamed.connect(_set_name.bind(obj))
+
+## Reload plugin
+func _cmd_reload(plugin_name := "") -> bool:
+	if plugin_name.is_empty():
+		# "commandrunner"
+		plugin_name = get_script().resource_path.get_base_dir() + "/plugin.cfg"
+
+	var reload_func := func() -> void:
+		var tree := EditorInterface.get_base_control().get_tree()
+		await tree.process_frame
+		if EditorInterface.is_plugin_enabled(plugin_name):
+			EditorInterface.set_plugin_enabled(plugin_name, false)
+			await tree.process_frame
+		print("Reloading plugin `%s`" % plugin_name)
+		EditorInterface.set_plugin_enabled(plugin_name, true)
+
+	reload_func.call()
+
+	return true
