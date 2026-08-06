@@ -253,7 +253,7 @@ func _run_expression(cmd_text: String) -> bool:
 		outputerr("Exec failed: %s" % expr.get_error_text())
 		return false
 
-	if verbose_mode: 
+	if verbose_mode:
 		output("cmd Result: `%s`" % [result])
 	else:
 		output("cmd %s `%s` = `%s`" % [_base_instance_node.name as String if _base_instance_node else "", cmd_text, result])
@@ -473,3 +473,32 @@ func _complete_request() -> void:
 	#update_code_completion_options(true)
 	#GDScriptLanguageProtocol
 	# todo the code complete popup would be in the way anyway since its not a popup
+
+func _on_cmd_code_edit_symbol_validate(_symbol: String) -> void:
+	_cmd_input.set_symbol_lookup_word_as_valid(true)
+
+func _on_cmd_code_edit_symbol_lookup(symbol: String, _line: int, _column: int) -> void:
+	var help_text := ""
+	var target_object := _base_instance_node
+	if target_object == null:
+		var sels := EditorInterface.get_selection().get_selected_nodes()
+		if sels:
+			target_object = sels[0]
+	
+	if ClassDB.class_exists(symbol):
+		help_text = "class_name:%s" % symbol
+	elif ClassDB.class_has_method("@GlobalScope", symbol):
+		help_text = "class_method:@GlobalScope:%s" % symbol
+	if target_object != null:
+		# todo get parent class with the symbol
+		#var target_class := target_object.get_class()
+		#if symbol in ClassDB.class_get_property_list(target_class):
+		if target_object.has_method(symbol):
+			help_text = "class_method:%s:%s" % [target_object.get_class(), symbol]
+		elif target_object.has_signal(symbol):
+			help_text = "class_signal:%s:%s" % [target_object.get_class(), symbol]
+		elif symbol in target_object:
+			# or constant?
+			help_text = "class_property:%s:%s" % [target_object.get_class(), symbol]
+		
+	EditorInterface.get_script_editor().goto_help(help_text)

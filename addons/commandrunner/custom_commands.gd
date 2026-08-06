@@ -117,7 +117,7 @@ func _cmd_new(var_name: String, opt_class_name := "") -> bool:
 		cmd_runner.output("got class %s %s" % [var_name, new_class_name])
 	return true
 
-## Create a new variable `var name value`
+## Create a new variable for later use `var name,value`
 func _cmd_var(var_name: String, value: Variant) -> bool:
 	var prefix_action := "Updated" if cmd_runner.has_var(var_name) else "Saved"
 	if cmd_runner.add_var(var_name, value):
@@ -384,7 +384,7 @@ func _open_in_new_inspector(obj: Object) -> void:
 func _cmd_reload(plugin_name := "") -> bool:
 	if plugin_name.is_empty():
 		# "commandrunner"
-		plugin_name = get_script().resource_path.get_base_dir() + "/plugin.cfg"
+		plugin_name = (get_script() as Script).resource_path.get_base_dir() + "/plugin.cfg"
 
 	var reload_func := func() -> void:
 		var tree := EditorInterface.get_base_control().get_tree()

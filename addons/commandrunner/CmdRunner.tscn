@@ -64,6 +64,7 @@ wrap_mode = 1
 scroll_fit_content_height = true
 syntax_highlighter = SubResource("GDScriptSyntaxHighlighter_2pf8l")
 highlight_all_occurrences = true
+symbol_lookup_on_click = true
 gutters_draw_line_numbers = true
 gutters_line_numbers_min_digits = 1
 
@@ -74,6 +75,8 @@ text = "run"
 
 [connection signal="gui_input" from="CmdCodeEdit" to="." method="_on_gui_input"]
 [connection signal="symbol_hovered" from="CmdCodeEdit" to="." method="_on_symbol_hovered"]
+[connection signal="symbol_lookup" from="CmdCodeEdit" to="." method="_on_cmd_code_edit_symbol_lookup"]
+[connection signal="symbol_validate" from="CmdCodeEdit" to="." method="_on_cmd_code_edit_symbol_validate"]
 [connection signal="text_changed" from="CmdCodeEdit" to="." method="_on_text_changed"]
 [connection signal="text_set" from="CmdCodeEdit" to="." method="_on_text_changed"]
 [connection signal="pressed" from="CmdRunButton" to="." method="_on_cmd_run_button_pressed"]
