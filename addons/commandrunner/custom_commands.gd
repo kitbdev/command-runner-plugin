@@ -17,7 +17,7 @@ var cmd_runner: CommandRunner
 const BUILTIN_TYPES: Array = ["NIL", "bool", "int", "float", "String", "Vector2", "Vector2I", "Rect2", "Rect2I", "Vector3", "Vector3I", "Transform2D", "Vector4", "Vector4I", "Plane", "Quaternion", "Aabb", "Basis", "Transform3D", "Projection", "Color", "StringName", "NodePath", "Rid", "Object", "Callable", "Signal", "Dictionary", "Array", "PackedByteArray", "PackedInt32Array", "PackedInt64Array", "PackedFloat32Array", "PackedFloat64Array", "PackedStringArray", "PackedVector2Array", "PackedVector3Array", "PackedColorArray", "PackedVector4Array", "MAX", ]
 
 ## Output list of commands and variables.
-func _cmdc_help():
+func _cmdc_help() -> bool:
 	var cmds := []
 	for method in get_method_list():
 		var mname: String = method.name
@@ -30,7 +30,7 @@ func _cmdc_help():
 			continue
 		
 		#(method.args as Array).reduce(func(acc, val): return val.name)
-		var names := (method.args as Array).map(func(val):
+		var names := (method.args as Array).map(func(val: Variant) -> String:
 			var type := ""
 			if val.type != 0:
 				type = ":%s" % BUILTIN_TYPES[val.type]
@@ -58,40 +58,44 @@ func _cmdc_help():
 		cmds.push_back(cmd_name)
 
 	cmd_runner.output("help\ncmds:\n%s\ninputs: %s\nvars: %s" % ["\n".join(cmds), cmd_runner._cmd_input_names, cmd_runner.get_all_vars()], true)
-	
+	return true
+
 
 ## Toggle verbose output mode
-func _cmd_q():
+func _cmd_q() -> bool:
 	cmd_runner.verbose_mode = not cmd_runner.verbose_mode
 	cmd_runner.output("verbose mode %s" % cmd_runner.verbose_mode, true)
 	return true
 
 ## Toggle toast output
-func _cmd_toast():
-	cmd_runner.oast_output = not cmd_runner.oast_output
-	cmd_runner.output("cmd_runner.oast_output %s" % cmd_runner.oast_output, true)
+func _cmd_toast() -> bool:
+	cmd_runner.toast_output = not cmd_runner.toast_output
+	cmd_runner.output("cmd_runner.toast_output %s" % cmd_runner.toast_output, true)
+	return true
 
 ## Clear history
-func _cmd_cls():
+func _cmd_cls() -> bool:
 	# Defer to not add this command to the history
 	cmd_runner.clear_history.call_deferred()
+	return true
 
 ## Open Editor Help documentation for the class of the given object.
-func _cmd_docs(target: Object = null):
+func _cmd_docs(target: Object = null) -> bool:
 	if target == null:
 		cmd_runner.outputerr("No target to open docs!")
 		return false
 	EditorInterface.get_script_editor().goto_help("class_name:%s" % target.get_class())
+	return true
 
 ## create a new instance of a class. Useful if you need access to something from the editor, like JSON 
-func _cmd_new(var_name: String, opt_class_name := ""):
+func _cmd_new(var_name: String, opt_class_name := "") -> bool:
 	# todo can be automatic?
 	var new_class_name := var_name
 	if opt_class_name != "":
 		new_class_name = opt_class_name
 
 	var made_new := true
-	var new_class = null
+	var new_class: Variant = null
 	if Engine.has_singleton(new_class_name):
 		new_class = Engine.get_singleton(new_class_name)
 		made_new = false
@@ -114,20 +118,20 @@ func _cmd_new(var_name: String, opt_class_name := ""):
 	return true
 
 ## Create a new variable `var name value`
-func _cmd_var(var_name: String, value):
+func _cmd_var(var_name: String, value: Variant) -> bool:
 	var prefix_action := "Updated" if cmd_runner.has_var(var_name) else "Saved"
 	if cmd_runner.add_var(var_name, value):
 		cmd_runner.output("%s var `%s` to value `%s`" % [prefix_action, var_name, value], true)
 	return true
 
 ## Remove a variable. Use `allvars` to erase all.
-func _cmd_erase(var_name: String):
+func _cmd_erase(var_name: String) -> bool:
 	if var_name == "allvars":
 		# erase all
 		cmd_runner.remove_all_vars()
 		cmd_runner.output("Erased allvars")
 		return true
-	var prev_dyn_value = cmd_runner.get_var_value(var_name)
+	var prev_dyn_value: Variant = cmd_runner.get_var_value(var_name)
 	cmd_runner.remove_var(var_name)
 	cmd_runner.output("Erased var `%s`, previously %s" % [var_name, prev_dyn_value])
 	return true
@@ -138,7 +142,7 @@ class SignalTracker extends RefCounted:
 	var obj_name := "unknown obj"
 	var cmd_runner: CommandRunner = null
 	
-	func report(...args):
+	func report(...args: Array) -> void:
 		var s := "%s: Signal `%s` emitted on `%s` with args `%s`" % [vname, name, obj_name, args]
 		#if cmd_runner != null:
 			## should this use output func? it can happen any time
@@ -147,26 +151,31 @@ class SignalTracker extends RefCounted:
 			#print(s)
 		print(s)
 
-func _get_sig_track_name(target_obj):
+func _get_obj_name(target_obj: Object) -> String:
+	if not target_obj:
+		return "null"
+
 	var targ_name := ""
 	if target_obj is Node:
-		targ_name = target_obj.name
+		var targ_node := target_obj as Node
+		targ_name = targ_node.name
 	elif target_obj is Resource:
-		targ_name = "%s-%s" % [target_obj.get_class(), target_obj.get_rid()]
+		var targ_res := target_obj as Resource
+		targ_name = "%s-%s" % [targ_res.get_class(), targ_res.get_rid()]
 	else:
-		# todo remove randomness?
-		targ_name = "%s-r%s" % [target_obj.get_class(), randi() % 10000]
-		# targ_name = "%s" % target_obj.get_class()
+		#targ_name = "%s-r%s" % [target_obj.get_class(), randi() % 10000]
+		targ_name = "%s-%s" % [target_obj.get_class(), str(target_obj)]
 
 	return targ_name
 
 ## Track a signal on an object. Prints a message when the signal fires.
-func _cmd_track(signame: String, target_obj: Object = null):
+func _cmd_track(signame: String, target_obj: Object = null) -> bool:
 	if target_obj == null:
-		target_obj = cmd_runner.base_instance_node
+		target_obj = cmd_runner._base_instance_node
 
+	var targ_name := _get_obj_name(target_obj)
 	if target_obj == null or not target_obj.has_signal(signame):
-		cmd_runner.outputerr("Cannot track signal `%s` on object `%s`: not found" % [signame, "null" if not target_obj else target_obj.name])
+		cmd_runner.outputerr("Cannot track signal `%s` on object `%s`: not found" % [signame, targ_name])
 		return true
 
 	# get the selected signal from the Signal dock somehow?
@@ -176,7 +185,6 @@ func _cmd_track(signame: String, target_obj: Object = null):
 			#return
 		#for arg in sig["args"]:
 
-	var targ_name = _get_sig_track_name(target_obj)
 	var vname := "track_%s_%s" % [signame, targ_name]
 	var sig_tracker := SignalTracker.new()
 	sig_tracker.vname = vname
@@ -190,15 +198,16 @@ func _cmd_track(signame: String, target_obj: Object = null):
 	return true
 
 ## Stop tracking a signal on an object, or stop tracking all.
-func _cmd_trackclear(signame: String, target_obj: Object = null):
+func _cmd_trackclear(signame: String, target_obj: Object = null) -> bool:
 	if signame != "":
 		if target_obj == null:
-			target_obj = cmd_runner.base_instance_node
+			target_obj = cmd_runner._base_instance_node
+
+		var targ_name := _get_obj_name(target_obj)
 		if target_obj == null or not target_obj.has_signal(signame):
-			cmd_runner.outputerr("Cannot trackclear signal `%s` on object `%s`: not found" % [signame, "null" if not target_obj else target_obj.name])
+			cmd_runner.outputerr("Cannot trackclear signal `%s` on object `%s`: not found" % [signame, targ_name])
 			return true
 
-		var targ_name = _get_sig_track_name(target_obj)
 		var vname := "track_%s_%s" % [signame, targ_name]
 		if not cmd_runner.has_var(vname):
 			cmd_runner.outputerr("Cannot trackclear signal `%s`: not found" % [vname])
@@ -209,22 +218,23 @@ func _cmd_trackclear(signame: String, target_obj: Object = null):
 
 	var to_rem := []
 	var all_vars := cmd_runner.get_all_vars()
-	for dci_name in all_vars:
-		var val = all_vars[dci_name]
+	for dci_name: Variant in all_vars:
+		var val: Variant = all_vars[dci_name]
 		if val is SignalTracker:
 			to_rem.push_back(val)
-	for v in to_rem:
+	for v: Variant in to_rem:
 		all_vars.erase(v)
 	cmd_runner._update_inputs()
 	cmd_runner.output("Cleared all signal tracking")
 	return true
 
 ## Use EditorDebugger to focus on a node
-func _cmd_focus_on(target: Node = null):
+func _cmd_focus_on(target: Node = null) -> bool:
 	if target == null or cmd_runner.editor_debugger == null:
 		cmd_runner.output("No target or no EditorDebugger")
-		return
+		return false
 	if cmd_runner.editor_debugger.has_method("_focus_in_tree"):
+		@warning_ignore("unsafe_method_access")
 		cmd_runner.editor_debugger._focus_in_tree(target)
 	else:
 		cmd_runner.outputerr("Cannot focus on target, EditorDebugger api")
@@ -232,7 +242,7 @@ func _cmd_focus_on(target: Node = null):
 
 
 ## Open a new floating inspector
-func _cmd_inspect(target: Object = null):
+func _cmd_inspect(target: Object = null) -> bool:
 	#if last_result !=null and last_result is Object:
 		#target = last_result
 	#if target == null:
@@ -256,7 +266,8 @@ func _open_in_new_inspector(obj: Object) -> void:
 
 	# Make new inspector
 	var inspector_window := Window.new()
-	var obj_name: String = obj.name if "name" in obj else str(obj)
+
+	var obj_name: String = _get_obj_name(obj)
 	inspector_window.title = "'%s' (%s) Inspector" % [obj_name, obj.get_class()]
 	inspector_window.name = "Custom Inspector for '%s'" % obj_name
 	inspector_window.wrap_controls = true
@@ -268,7 +279,7 @@ func _open_in_new_inspector(obj: Object) -> void:
 	
 	var outer_margin := MarginContainer.new()
 	outer_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var margin_value = 6
+	var margin_value := 6
 	outer_margin.add_theme_constant_override("margin_top", margin_value)
 	outer_margin.add_theme_constant_override("margin_left", margin_value)
 	outer_margin.add_theme_constant_override("margin_bottom", margin_value)
@@ -342,7 +353,7 @@ func _open_in_new_inspector(obj: Object) -> void:
 	settings_btn.get_popup().add_item("Collapse All")
 	settings_btn.get_popup().add_item("Expand All non-default")
 
-	var _on_settings_btn := func(idx):
+	var _on_settings_btn := func(idx: int) -> void:
 		if not new_inspector.has_method("expand_all_folding"):
 			print("Cannot expand/collapse!")
 			return
@@ -355,16 +366,16 @@ func _open_in_new_inspector(obj: Object) -> void:
 				new_inspector.expand_revertable()
 	settings_btn.get_popup().id_pressed.connect(_on_settings_btn)
 	
-	var _set_name := func(_obj_name, _obj):
+	var _set_name := func(_obj_name: String, _obj: Object) -> void:
 		inspector_window.title = "'%s' (%s) Inspector" % [_obj_name, _obj.get_class()]
 		inspector_window.name = "Custom Inspector for '%s'" % _obj_name
 		name_label.text = _obj_name + ": " + _obj.get_class()
 
-	var _close_inspector := func():
+	var _close_inspector := func() -> void:
 		inspector_window.queue_free()
 		if obj is Node:
-			obj.renamed.disconnect(_set_name)
+			(obj as Node).renamed.disconnect(_set_name)
 	inspector_window.close_requested.connect(_close_inspector)
 	#close_btn.pressed.connect(_close_inspector)
 	if obj is Node:
-		obj.renamed.connect(_set_name.bind(obj))
+		(obj as Node).renamed.connect(_set_name.bind(obj))

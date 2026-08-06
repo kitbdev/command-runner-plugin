@@ -36,7 +36,7 @@ var _cmd_input_names: PackedStringArray = []
 var _base_cmd_input_names: PackedStringArray = []
 
 var _base_instance_node: Node
-var _last_result = null
+var _last_result: Variant = null
 
 var _custom_commands: CommandRunnerCustomCommands
 
@@ -55,7 +55,7 @@ func _ready() -> void:
 	_update_run_button_vis()
 	_update_warning_label()
 
-func _add_output_label(output_text: String):
+func _add_output_label(output_text: String) -> void:
 	var new_label := RichTextLabel.new()
 	new_label.name = "Cmd Hist _%s_" % output_text.left(5).validate_node_name()
 	new_label.selection_enabled = true
@@ -75,7 +75,7 @@ func _add_output_label(output_text: String):
 	await get_tree().process_frame
 	scroll_container.scroll_vertical = 10000
 
-func clear_history():
+func clear_history() -> void:
 	_cmd_hist = []
 	_cmd_hist_index = -1
 	
@@ -87,7 +87,7 @@ func clear_history():
 	scroll_container.scroll_vertical = 0
 
 
-func output(output_text: String, is_escaped: bool = false):
+func output(output_text: String, is_escaped: bool = false) -> void:
 	if toast_output:
 		EditorInterface.get_editor_toaster().push_toast(output_text, EditorToaster.SEVERITY_INFO)
 	if not is_escaped:
@@ -97,7 +97,7 @@ func output(output_text: String, is_escaped: bool = false):
 		print_rich(output_text)
 		#print(output_text)
 
-func outputerr(output_text: String):
+func outputerr(output_text: String) -> void:
 	if toast_output:
 		EditorInterface.get_editor_toaster().push_toast(output_text, EditorToaster.SEVERITY_ERROR)
 	
@@ -149,7 +149,7 @@ func _preprocess_cmd(cmd_text: String) -> Array:
 				if sep_at < 0 or rest_of_cmd.find(",") < sep_at:
 					sep_at = rest_of_cmd.find(",")
 				
-				var first_arg = rest_of_cmd.substr(0, sep_at)
+				var first_arg := rest_of_cmd.substr(0, sep_at)
 				rest_of_cmd = '"%s"%s' % [first_arg, rest_of_cmd.substr(sep_at)]
 				# todo account for multiple? reliable?
 
@@ -165,7 +165,7 @@ func _preprocess_cmd(cmd_text: String) -> Array:
 
 	return [cmd_text, awaitable, const_cmd_check_portion]
 
-func _clear_editor_debugger():
+func _clear_editor_debugger() -> void:
 	editor_debugger = null
 
 func get_all_vars() -> Dictionary:
@@ -177,7 +177,7 @@ func has_var(var_name: String) -> bool:
 func get_var_value(var_name: String) -> Variant:
 	return _dynamic_cmd_items[var_name]
 
-func add_var(var_name: String, value) -> bool:
+func add_var(var_name: String, value: Variant) -> bool:
 	if _base_cmd_input_names.has(var_name):
 		outputerr("Invalid name `%s` overrides existing" % var_name)
 		return false
@@ -185,7 +185,7 @@ func add_var(var_name: String, value) -> bool:
 	_update_inputs()
 	return true
 
-func remove_var(var_name) -> bool:
+func remove_var(var_name: String) -> bool:
 	if not _dynamic_cmd_items.has(var_name):
 		outputerr("Cannot erase var `%s`, does not exist" % var_name)
 		return false
@@ -198,7 +198,7 @@ func remove_all_vars() -> bool:
 	_update_inputs()
 	return true
 
-func _update_inputs():
+func _update_inputs() -> void:
 	if editor_debugger == null:
 		editor_debugger = EditorInterface.get_base_control().find_child("EditorDebugger", true, false)
 		if editor_debugger != null and not editor_debugger.tree_exited.is_connected(_clear_editor_debugger):
@@ -213,23 +213,26 @@ func _update_inputs():
 			return
 
 		# todo this isn't updated...
+		@warning_ignore("unsafe_property_access", "unsafe_method_access", "untyped_declaration")
 		var node_view = editor_debugger._tree_view.get_selected()
+		@warning_ignore("unsafe_method_access")
 		_base_instance_node = editor_debugger._get_node_from_view(node_view)
 
 	# If multiple selections are needed, get in command on EditorInterface
-	var selection = EditorInterface.get_selection().get_selected_nodes()[0] if not EditorInterface.get_selection().get_selected_nodes().is_empty() else null
+	var selection := EditorInterface.get_selection().get_selected_nodes()[0] if not EditorInterface.get_selection().get_selected_nodes().is_empty() else null
 
 
 	_cmd_inputs = [EditorInterface, selection, ClassDB, _dynamic_cmd_items.duplicate(), self, _custom_commands]
 	_base_cmd_input_names = ["EditorInterface", "sel", "ClassDB", "allvars", "cmd_runner", "cmds"]
 	_cmd_input_names = _base_cmd_input_names.duplicate()
 	
-	for dynamic_cmd_item_name in _dynamic_cmd_items:
+	for dynamic_cmd_item_name: Variant in _dynamic_cmd_items:
 		if not dynamic_cmd_item_name is String:
 			outputerr("invalid dynamic cmd item %s" % dynamic_cmd_item_name)
 			continue
-		_cmd_input_names.push_back(dynamic_cmd_item_name)
-		_cmd_inputs.push_back(_dynamic_cmd_items[dynamic_cmd_item_name])
+		var cmd_name := dynamic_cmd_item_name as String
+		_cmd_input_names.push_back(cmd_name)
+		_cmd_inputs.push_back(_dynamic_cmd_items[cmd_name])
 
 
 func _run_expression(cmd_text: String) -> bool:
@@ -243,14 +246,17 @@ func _run_expression(cmd_text: String) -> bool:
 		outputerr("Parse error. cmd: `%s` error:%s %s" % [cmd_text, err, expr.get_error_text()])
 		return false
 
-	if verbose_mode: output("Running cmd: `%s` on node `%s` (%s)" % [cmd_text, _base_instance_node.name if _base_instance_node else "none", _base_instance_node.get_class() if _base_instance_node else "none"])
-	var result = expr.execute(_cmd_inputs, _base_instance_node, true, false)
+	if verbose_mode:
+		output("Running cmd: `%s` on node `%s` (%s)" % [cmd_text, (_base_instance_node.name as String if _base_instance_node else "none"), (_base_instance_node.get_class() if _base_instance_node else "none")])
+	var result: Variant = expr.execute(_cmd_inputs, _base_instance_node, true, false)
 	if expr.has_execute_failed():
 		outputerr("Exec failed: %s" % expr.get_error_text())
 		return false
 
-	if verbose_mode: output("cmd Result: `%s`" % [result])
-	else: output("cmd %s `%s` = `%s`" % [_base_instance_node.name if _base_instance_node else "", cmd_text, result])
+	if verbose_mode: 
+		output("cmd Result: `%s`" % [result])
+	else:
+		output("cmd %s `%s` = `%s`" % [_base_instance_node.name as String if _base_instance_node else "", cmd_text, result])
 	_last_result = result
 	return true
 
@@ -274,7 +280,7 @@ func _run_cmds() -> void:
 	# save cmd history
 	if _cmd_hist.is_empty() or _cmd_hist[_cmd_hist.size() - 1] != cmd_txt:
 		#_cmd_hist = _cmd_hist.filter(func (a): return _cmd_hist.count(a) == 1)
-		for i in max(0, _cmd_hist.size() - _max_hist_size):
+		for i: int in max(0, _cmd_hist.size() - _max_hist_size):
 			_cmd_hist.remove_at(0)
 		_cmd_hist.push_back(cmd_txt)
 		_cmd_hist_index = _cmd_hist.size() - 1
@@ -328,7 +334,7 @@ func _check_expression(cmd_text: String, check_exec: Array) -> String:
 	
 	if exec_const_on_type:
 		# NOTE: gdscript doesn't have const calls so this can change things...
-		var result = expr.execute(_cmd_inputs, _base_instance_node, false, true)
+		var _result: Variant = expr.execute(_cmd_inputs, _base_instance_node, false, true)
 		if expr.has_execute_failed():
 			check_exec[0] = false
 			# TODO ignore const call errors. cannot check cause error message sucks rn https://github.com/godotengine/godot/pull/114216
@@ -358,30 +364,30 @@ func _update_warning_label() -> void:
 	
 	_warning_label.show()
 	
-	var warning_text = "\n".join(warnings)
+	var warning_text := "\n".join(warnings)
 	if warning_text.is_empty():
 		_warning_label.text = "[color=green]Valid[/color]"
 		return
 	
-	var base_text = ("base: %s(%s)\n" % [_base_instance_node.name, _base_instance_node.get_class()]) if _base_instance_node else ""
+	var base_text := ("base: %s(%s)\n" % [_base_instance_node.name, _base_instance_node.get_class()]) if _base_instance_node else ""
 	#_warning_label.text = "[color=red]"+warnings+"[/color]"
 	_warning_label.text = "%s%s" % [base_text, warning_text]
 
 func _on_cmd_run_button_pressed() -> void:
 	_run_cmds()
 
-func _load_hist():
+func _load_hist() -> void:
 	var savecfg := ConfigFile.new()
 	var err := savecfg.load(_save_path)
 	if err != OK:
 		#print("Command Runner failed to load cfg ", error_string(err))
 		return
-	var hist = savecfg.get_value("cmds", "_cmd_hist")
+	var hist: Variant = savecfg.get_value("cmds", "_cmd_hist")
 	_cmd_hist = hist
 	_cmd_hist_index = -1
 	#text = hist
 
-func _save_hist():
+func _save_hist() -> void:
 	var savecfg := ConfigFile.new()
 	var err := savecfg.load(_save_path)
 	if err == ERR_FILE_NOT_FOUND:
@@ -451,12 +457,12 @@ func _on_gui_input(event: InputEvent) -> void:
 			accept_event()
 
 
-func _on_symbol_hovered(symbol: String, line: int, column: int) -> void:
+func _on_symbol_hovered(_symbol: String, _line: int, _column: int) -> void:
 	pass # Replace with function body.
 	# todo possible?
 	#tooltip
 
-func _complete_request():
+func _complete_request() -> void:
 	pass
 	#var ctext = _cmd_input.get_text_for_code_completion()
 	# Expression has no built in completion, so it would be a pain
