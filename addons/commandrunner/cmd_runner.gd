@@ -23,7 +23,7 @@ class_name CommandRunner
 
 var editor_debugger: Control
 
-var _cmd_hist := []
+var _cmd_hist: PackedStringArray = []
 var _cmd_hist_index := 0
 var _max_hist_size := 100
 
@@ -32,8 +32,8 @@ var _dynamic_cmd_items := {}
 var _save_path := ".godot/editor/cmd_runner.cfg"
 
 var _cmd_inputs := []
-var _cmd_input_names := []
-var _base_cmd_input_names := []
+var _cmd_input_names: PackedStringArray = []
+var _base_cmd_input_names: PackedStringArray = []
 
 var _base_instance_node: Node
 var _last_result = null
@@ -272,7 +272,7 @@ func _run_cmds() -> void:
 	if _cmd_hist.is_empty() or _cmd_hist[_cmd_hist.size() - 1] != cmd_txt:
 		#_cmd_hist = _cmd_hist.filter(func (a): return _cmd_hist.count(a) == 1)
 		for i in max(0, _cmd_hist.size() - _max_hist_size):
-			_cmd_hist.pop_front()
+			_cmd_hist.remove_at(0)
 		_cmd_hist.push_back(cmd_txt)
 		_cmd_hist_index = _cmd_hist.size() - 1
 		# clear if different type? idk

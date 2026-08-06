@@ -1,4 +1,4 @@
 # Command Runner Plugin for Godot
 
-Adds a dock to run code in the editor, to manipulate the editor.
-Uses Expressions to 
+Adds a dock to run expressions in the editor.
+Used to manipulate the parts of the editor for debugging.

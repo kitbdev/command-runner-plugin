@@ -229,7 +229,7 @@ func _cmd_inspect(target: Object = null):
 	if target == null:
 		cmd_runner.outputerr("No target Object to inspect!")
 		return false
-	cmd_runner.output("inspecting %s" % target)
+	cmd_runner.output("Inspecting %s" % target)
 	_open_in_new_inspector(target)
 	return true
 
