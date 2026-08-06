@@ -90,7 +90,7 @@ func clear_history():
 func output(output_text: String, verbose := false):
 	if toast_output:
 		EditorInterface.get_editor_toaster().push_toast(output_text, EditorToaster.SEVERITY_INFO)
-	_add_output_label("[color=gray]%s[/color]" % output_text)
+	_add_output_label("[color=gray]%s[/color]" % _bbescape(output_text))
 	if print_output:
 		print_rich(output_text)
 		#print(output_text)
@@ -99,7 +99,7 @@ func outputerr(output_text: String, verbose := false):
 	if toast_output:
 		EditorInterface.get_editor_toaster().push_toast(output_text, EditorToaster.SEVERITY_ERROR)
 	
-	_add_output_label("[color=red]%s[/color]" % output_text)
+	_add_output_label("[color=red]%s[/color]" % _bbescape(output_text))
 	if print_output:
 		printerr(output_text)
 
@@ -296,6 +296,9 @@ func _run_cmds() -> void:
 	
 	# todo open output dock?
 
+func _bbescape(s: String) -> String:
+	return s.replace("[", "[lb]")
+
 func _check_expression(cmd_text: String, check_exec: Array) -> String:
 	var processed := _preprocess_cmd(cmd_text)
 	cmd_text = processed[0]
@@ -308,14 +311,13 @@ func _check_expression(cmd_text: String, check_exec: Array) -> String:
 
 	if const_portion.is_empty():
 		check_exec[0] = false
-		return "[color=gray][i]Non-const, skipping exec checks[/i][/color] `%s`" % cmd_text
+		return "[color=gray][i]Non-const, skipping exec checks[/i][/color] `%s`" % _bbescape(cmd_text)
 	
 	var expr := Expression.new()
 	var err := expr.parse(const_portion, _cmd_input_names)
 	if err != OK:
 		check_exec[0] = false
-		# todo need to escape bbcode from message?
-		return "[color=red]Parse Error:[/color] %s; %s `%s`" % [error_string(err), expr.get_error_text(), const_portion]
+		return "[color=red]Parse Error:[/color] %s; %s `%s`" % [error_string(err), _bbescape(expr.get_error_text()), _bbescape(const_portion)]
 	
 	if not check_exec[0]:
 		# warning was already printed
@@ -328,10 +330,10 @@ func _check_expression(cmd_text: String, check_exec: Array) -> String:
 			check_exec[0] = false
 			# TODO ignore const call errors. cannot check cause error message sucks rn https://github.com/godotengine/godot/pull/114216
 			# "Method not const in const instance"
-			return "[color=red]Error:[/color] %s `%s`" % [expr.get_error_text(), const_portion]
+			return "[color=red]Error:[/color] %s `%s`" % [_bbescape(expr.get_error_text()), _bbescape(const_portion)]
 
 	#return ""
-	return "[color=darkgreen]%s[/color]" % cmd_text
+	return "[color=darkgreen]%s[/color]" % _bbescape(cmd_text)
 
 func _update_warning_label() -> void:
 	var cmd_txt := _cmd_input.text

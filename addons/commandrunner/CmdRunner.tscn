@@ -24,7 +24,6 @@ offset_right = -878.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_sd5oa")
-exec_const_on_type = false
 
 [node name="ScrollContainer" type="ScrollContainer" parent="." unique_id=627700144]
 custom_minimum_size = Vector2(0, 50)
