@@ -216,15 +216,11 @@ func _cmd_trackclear(signame: String, target_obj: Object = null) -> bool:
 		cmd_runner.output("Removed signal tracking for signal `%s`" % signame)
 		return true
 
-	var to_rem := []
 	var all_vars := cmd_runner.get_all_vars()
-	for dci_name: Variant in all_vars:
+	for dci_name: String in all_vars:
 		var val: Variant = all_vars[dci_name]
 		if val is SignalTracker:
-			to_rem.push_back(val)
-	for v: Variant in to_rem:
-		all_vars.erase(v)
-	cmd_runner._update_inputs()
+			cmd_runner.remove_var(dci_name)
 	cmd_runner.output("Cleared all signal tracking")
 	return true
 
