@@ -6,6 +6,7 @@ var cmd_runner: CommandRunner
 ## All functions that start with `_cmd_` can be run by typing the rest of the function name. No parenthesis 
 ## These may take parameters, comma separated
 ## `_cmdc_` are constant and will be executed before submitting
+## They return a bool for success, but it is never actually used.
 
 ## test
 # func _cmd_test():
@@ -57,9 +58,13 @@ func _cmdc_help() -> bool:
 
 		cmds.push_back(cmd_name)
 
-	cmd_runner.output("help\ncmds:\n%s\ninputs: %s\nvars: %s" % ["\n".join(cmds), cmd_runner._cmd_input_names, cmd_runner.get_all_vars()], true)
+	cmd_runner.output("help\ncmds:\n%s\nvars: %s" % ["\n".join(cmds), cmd_runner.get_all_vars()], true)
 	return true
 
+## Print all Expression input vars.
+func _cmdc_cmdinputs() -> bool:
+	cmd_runner.output("inputs: %s\nvars: %s" % [cmd_runner._cmd_input_names, cmd_runner.get_all_vars()], true)
+	return true
 
 ## Toggle verbose output mode
 func _cmd_q() -> bool:
@@ -87,28 +92,28 @@ func _cmd_docs(target: Object = null) -> bool:
 	EditorInterface.get_script_editor().goto_help("class_name:%s" % target.get_class())
 	return true
 
-## create a new instance of a class. Useful if you need access to something from the editor, like JSON 
+## create a new instance of a class.
 func _cmd_new(var_name: String, opt_class_name := "") -> bool:
-	# todo can be automatic?
 	var new_class_name := var_name
 	if opt_class_name != "":
 		new_class_name = opt_class_name
 
 	var made_new := true
 	var new_class: Variant = null
-	if Engine.has_singleton(new_class_name):
-		new_class = Engine.get_singleton(new_class_name)
-		made_new = false
-	elif ClassDB.can_instantiate(new_class_name):
+	# singletons are added automatically
+	#if Engine.has_singleton(new_class_name):
+		#new_class = Engine.get_singleton(new_class_name)
+		#made_new = false
+	if ClassDB.can_instantiate(new_class_name):
 			# make var instead
-		new_class = ClassDB.instantiate(new_class_name);
+		new_class = ClassDB.instantiate(new_class_name)
 	#elif ClassDB.class_exists(new_class_name):
 		#new_class = ClassDB.class_call_static()
 	if new_class == null:
 		cmd_runner.outputerr("Cannot make class %s" % new_class_name)
 		return false
 
-	var worked := cmd_runner.add_var(var_name, new_class)
+	var worked := cmd_runner.add_var(var_name, new_class, made_new)
 	if not worked:
 		return false
 	if made_new:

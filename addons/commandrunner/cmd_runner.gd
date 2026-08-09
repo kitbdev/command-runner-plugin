@@ -28,6 +28,8 @@ var _cmd_hist_index := 0
 var _max_hist_size := 100
 
 var _dynamic_cmd_items := {}
+var _auto_class_loads := []
+var _created_vars := []
 
 var _save_path := ".godot/editor/cmd_runner.cfg"
 
@@ -54,6 +56,10 @@ func _ready() -> void:
 	_load_hist()
 	_update_run_button_vis()
 	_update_warning_label()
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE:
+		remove_all_vars()
 
 func _add_output_label(output_text: String) -> void:
 	var new_label := RichTextLabel.new()
@@ -177,10 +183,12 @@ func has_var(var_name: String) -> bool:
 func get_var_value(var_name: String) -> Variant:
 	return _dynamic_cmd_items[var_name]
 
-func add_var(var_name: String, value: Variant) -> bool:
+func add_var(var_name: String, value: Variant, created := false) -> bool:
 	if _base_cmd_input_names.has(var_name):
 		outputerr("Invalid name `%s` overrides existing" % var_name)
 		return false
+	if created:
+		_created_vars.push_back(var_name)
 	_dynamic_cmd_items[var_name] = value
 	_update_inputs()
 	return true
@@ -189,12 +197,25 @@ func remove_var(var_name: String) -> bool:
 	if not _dynamic_cmd_items.has(var_name):
 		outputerr("Cannot erase var `%s`, does not exist" % var_name)
 		return false
+	if var_name in _created_vars:
+		var obj := _dynamic_cmd_items[var_name] as Object
+		if obj and obj is not RefCounted and (obj is not Node or (obj as Node).is_inside_tree()):
+			obj.free()
 	_dynamic_cmd_items.erase(var_name)
+	_auto_class_loads.erase(var_name)
+	_created_vars.erase(var_name)
 	_update_inputs()
 	return true
 
 func remove_all_vars() -> bool:
+	for var_name: String in _dynamic_cmd_items:
+		if var_name in _created_vars:
+			var obj := _dynamic_cmd_items[var_name] as Object
+			if obj and obj is not RefCounted and (obj is not Node or (obj as Node).is_inside_tree()):
+				obj.free()
 	_dynamic_cmd_items.clear()
+	_auto_class_loads.clear()
+	_created_vars.clear()
 	_update_inputs()
 	return true
 
@@ -221,11 +242,14 @@ func _update_inputs() -> void:
 	# If multiple selections are needed, get in command on EditorInterface
 	var selection := EditorInterface.get_selection().get_selected_nodes()[0] if not EditorInterface.get_selection().get_selected_nodes().is_empty() else null
 
-
-	_cmd_inputs = [EditorInterface, selection, ClassDB, _dynamic_cmd_items.duplicate(), self, _custom_commands]
-	_base_cmd_input_names = ["EditorInterface", "sel", "ClassDB", "allvars", "cmd_runner", "cmds"]
+	_cmd_inputs = [selection, _dynamic_cmd_items.duplicate(), self, _custom_commands]
+	_base_cmd_input_names = ["sel", "allvars", "cmd_runner", "cmds"]
 	_cmd_input_names = _base_cmd_input_names.duplicate()
-	
+
+	for singleton: String in Engine.get_singleton_list():
+		_cmd_input_names.push_back(singleton)
+		_cmd_inputs.push_back(Engine.get_singleton(singleton))
+
 	for dynamic_cmd_item_name: Variant in _dynamic_cmd_items:
 		if not dynamic_cmd_item_name is String:
 			outputerr("invalid dynamic cmd item %s" % dynamic_cmd_item_name)
@@ -233,7 +257,6 @@ func _update_inputs() -> void:
 		var cmd_name := dynamic_cmd_item_name as String
 		_cmd_input_names.push_back(cmd_name)
 		_cmd_inputs.push_back(_dynamic_cmd_items[cmd_name])
-
 
 func _run_expression(cmd_text: String) -> bool:
 	#if not _base_instance_node:
@@ -339,10 +362,64 @@ func _check_expression(cmd_text: String, check_exec: Array) -> String:
 			check_exec[0] = false
 			# TODO ignore const call errors. cannot check cause error message sucks rn https://github.com/godotengine/godot/pull/114216
 			# "Method not const in const instance"
+
+			# These errors may show when using a class that isn't in the inputs.
+			var err_msgs_missing_class := ["self can't be used ", "Invalid named index"]
+			for missing_msg: String in err_msgs_missing_class:
+				var err_text := expr.get_error_text()
+				if err_text.contains(missing_msg):
+					_auto_add_class(const_portion)
+					break
+
 			return "[color=red]Error:[/color] %s `%s`" % [_bbescape(expr.get_error_text()), _bbescape(const_portion)]
 
 	#return ""
 	return "[color=darkgreen]%s[/color]" % _bbescape(cmd_text)
+
+static func is_symbol(p_char: String) -> bool:
+	return p_char != '_' && ((p_char >= '!' && p_char <= '/') || (p_char >= ':' && p_char <= '@') || (p_char >= '[' && p_char <= '`') || (p_char >= '{' && p_char <= '~') || p_char == '\t' || p_char == ' ')
+
+func _auto_add_class(cmd_msg: String) -> void:
+	# automatically create new classes from the given command.
+	# This is so static methods can be called without needing to manually create a class.
+	# Do not use ClassDB class list, it crashes.
+	# Instead check each word from the command to see if it is a class.
+	var cname := ""
+	var potential_classes := []
+	var in_word := false
+	for i in cmd_msg.length():
+		var c := cmd_msg[i]
+		if is_symbol(c):
+			in_word = false
+			continue
+		if not in_word:
+			if i > 0 and not is_symbol(cmd_msg[i - 1]):
+				continue
+			in_word = true
+			potential_classes.push_back("")
+		potential_classes[-1] += c
+
+	#print("found potentials: ", potential_classes)
+	for cl: String in potential_classes:
+		if not cl.is_empty() and ClassDB.class_exists(cl) and ClassDB.can_instantiate(cl):
+			cname = cl
+			break
+	if cname.is_empty():
+		return
+	if _auto_class_loads.has(cname) or has_var(cname):
+		return
+
+	#print("found new ", cname)
+	var new_instance: Object = ClassDB.instantiate(cname)
+	if new_instance == null:
+		printerr("Command Runner failed to create new instance of `%s`" % cname)
+
+	# todo remove later if not needed somehow?
+	_auto_class_loads.push_back(cname)
+	add_var(cname, new_instance, true)
+
+	# Re-update
+	_update_warning_label.call_deferred()
 
 func _update_warning_label() -> void:
 	var cmd_txt := _cmd_input.text
