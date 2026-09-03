@@ -78,8 +78,13 @@ func _cmd_toast() -> bool:
 	cmd_runner.output("cmd_runner.toast_output %s" % cmd_runner.toast_output, true)
 	return true
 
-## Clear history
+## Clear history log
 func _cmd_cls() -> bool:
+	cmd_runner.clear_history_container()
+	return true
+
+## Clear history
+func _cmd_clear() -> bool:
 	# Defer to not add this command to the history
 	cmd_runner.clear_history.call_deferred()
 	return true
@@ -98,28 +103,43 @@ func _cmd_new(var_name: String, opt_class_name := "") -> bool:
 	if opt_class_name != "":
 		new_class_name = opt_class_name
 
-	var made_new := true
 	var new_class: Variant = null
-	# singletons are added automatically
-	#if Engine.has_singleton(new_class_name):
-		#new_class = Engine.get_singleton(new_class_name)
-		#made_new = false
 	if ClassDB.can_instantiate(new_class_name):
-			# make var instead
+		# make var
 		new_class = ClassDB.instantiate(new_class_name)
-	#elif ClassDB.class_exists(new_class_name):
-		#new_class = ClassDB.class_call_static()
+
 	if new_class == null:
-		cmd_runner.outputerr("Cannot make class %s" % new_class_name)
+		# Create from global script class
+		var gcl := ProjectSettings.get_global_class_list()
+		for gc in gcl:
+			if gc["class"] == new_class_name:
+				if gc["is_abstract"]:
+					cmd_runner.outputerr("Cannot make class %s, abstract" % new_class_name)
+					return false
+				var path := gc["path"] as String
+				if path.contains("::") or path.is_empty():
+					# builtin
+					cmd_runner.outputerr("Cannot make class %s, built-in '%s'" % [new_class_name, path])
+					return false
+				var scr := load(path) as GDScript
+				if not scr:
+					cmd_runner.outputerr("Cannot make class %s, failed to load '%s'" % [new_class_name, path])
+					return false
+				if not scr.can_instantiate():
+					cmd_runner.outputerr("Cannot make class %s, cannot instantiate '%s'" % [new_class_name, path])
+					return false
+				new_class = scr.new()
+
+
+	if new_class == null:
+		cmd_runner.outputerr("Cannot make class %s, not found" % new_class_name)
 		return false
 
-	var worked := cmd_runner.add_var(var_name, new_class, made_new)
+	var worked := cmd_runner.add_var(var_name, new_class, true)
 	if not worked:
 		return false
-	if made_new:
-		cmd_runner.output("made new class %s %s" % [var_name, new_class_name])
-	else:
-		cmd_runner.output("got class %s %s" % [var_name, new_class_name])
+
+	cmd_runner.output("Made new class %s %s" % [var_name, new_class_name])
 	return true
 
 ## Create a new variable for later use `var name,value`
@@ -139,6 +159,12 @@ func _cmd_erase(var_name: String) -> bool:
 	var prev_dyn_value: Variant = cmd_runner.get_var_value(var_name)
 	cmd_runner.remove_var(var_name)
 	cmd_runner.output("Erased var `%s`, previously %s" % [var_name, prev_dyn_value])
+	return true
+
+## Override the base instance for future commands.
+func _cmd_base_instance(obj: Object) -> bool:
+	cmd_runner._base_instance_override = obj
+	cmd_runner.output("Base instance overridden to %s" % obj.to_string())
 	return true
 
 class SignalTracker extends RefCounted:
@@ -176,7 +202,7 @@ func _get_obj_name(target_obj: Object) -> String:
 ## Track a signal on an object. Prints a message when the signal fires.
 func _cmd_track(signame: String, target_obj: Object = null) -> bool:
 	if target_obj == null:
-		target_obj = cmd_runner._base_instance_node
+		target_obj = cmd_runner.get_base_instance()
 
 	var targ_name := _get_obj_name(target_obj)
 	if target_obj == null or not target_obj.has_signal(signame):
@@ -206,7 +232,7 @@ func _cmd_track(signame: String, target_obj: Object = null) -> bool:
 func _cmd_trackclear(signame: String, target_obj: Object = null) -> bool:
 	if signame != "":
 		if target_obj == null:
-			target_obj = cmd_runner._base_instance_node
+			target_obj = cmd_runner.get_base_instance()
 
 		var targ_name := _get_obj_name(target_obj)
 		if target_obj == null or not target_obj.has_signal(signame):

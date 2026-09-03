@@ -37,7 +37,8 @@ var _cmd_inputs := []
 var _cmd_input_names: PackedStringArray = []
 var _base_cmd_input_names: PackedStringArray = []
 
-var _base_instance_node: Node
+var _base_instance_node: Node = null
+var _base_instance_override: Object = null
 var _last_result: Variant = null
 
 var _custom_commands: CommandRunnerCustomCommands
@@ -83,8 +84,11 @@ func _add_output_label(output_text: String) -> void:
 
 func clear_history() -> void:
 	_cmd_hist = []
-	_cmd_hist_index = -1
-	
+	_cmd_hist_index = 0
+
+	clear_history_container()
+
+func clear_history_container() -> void:
 	var hist_count := _history_container.get_child_count()
 	for i in range(hist_count):
 		_history_container.get_child(i).queue_free()
@@ -144,29 +148,38 @@ func _preprocess_cmd(cmd_text: String) -> Array:
 			continue
 		#print(method)
 
-		var rest_is_str := rest_of_cmd.strip_edges().begins_with("'") or rest_of_cmd.strip_edges().begins_with("\"")
-		
-		#var args := []
-		var argcount := (method.args as Array).size()
-		if argcount >= 1:
-			if method.args[0].type == TYPE_STRING and not rest_is_str:
-				# quote it
-				var sep_at := rest_of_cmd.find(" ")
-				if sep_at < 0 or rest_of_cmd.find(",") < sep_at:
-					sep_at = rest_of_cmd.find(",")
-				
-				var first_arg := rest_of_cmd.substr(0, sep_at)
-				rest_of_cmd = '"%s"%s' % [first_arg, rest_of_cmd.substr(sep_at)]
-				# todo account for multiple? reliable?
+		var args := []
+		var remaining_arg_text := rest_of_cmd.strip_edges()
+		for arg: Dictionary in (method.args as Array):
+			var cut_arg := ""
+			var narg := ""
 
-			#args.push_back(rest_of_cmd)
-		#if argcount >= 2:
-			#args.push_back(cmd_split)
-		#var argtext := ", ".join(args)
-		var updated_cmd := "cmds.%s(%s)" % [mname, rest_of_cmd]
+			if remaining_arg_text.begins_with("\""):
+				# todo handle escape?
+				var cut_arg_end := remaining_arg_text.find("\"")
+				# if cut_arg_end < 0: #unterminated, use rest of str
+				cut_arg = remaining_arg_text.substr(1, cut_arg_end)
+			elif remaining_arg_text.contains(","):
+				cut_arg = remaining_arg_text.get_slice(",",0)
+			elif remaining_arg_text.contains(" "):
+				cut_arg = remaining_arg_text.get_slice(" ",0)
+			else:
+				cut_arg = remaining_arg_text
+			# print("'%s' - '%s'" % [remaining_arg_text, cut_arg])
+
+			narg = cut_arg
+			if arg.type == TYPE_STRING:
+				# quote it
+				narg = "\"%s\"" % narg
+
+			remaining_arg_text = remaining_arg_text.right(-cut_arg.length()).strip_edges()
+			args.push_back(narg)
+
+		var argtext := ", ".join(args)
+		var updated_cmd := "cmds.%s(%s)" % [mname, argtext]
 		var func_const_portion := updated_cmd
 		if not is_func_const:
-			func_const_portion = rest_of_cmd
+			func_const_portion = argtext
 		return [updated_cmd, awaitable, func_const_portion]
 
 	return [cmd_text, awaitable, const_cmd_check_portion]
@@ -183,6 +196,8 @@ func has_var(var_name: String) -> bool:
 func get_var_value(var_name: String) -> Variant:
 	return _dynamic_cmd_items[var_name]
 
+## Add a new variable to access in Expressions.
+## Use created=true to have the memory freed when done. 
 func add_var(var_name: String, value: Variant, created := false) -> bool:
 	if _base_cmd_input_names.has(var_name):
 		outputerr("Invalid name `%s` overrides existing" % var_name)
@@ -272,9 +287,10 @@ func _run_expression(cmd_text: String) -> bool:
 		outputerr("Parse error. cmd: `%s` error:%s %s" % [cmd_text, err, expr.get_error_text()])
 		return false
 
+	var base_instance := get_base_instance()
 	if verbose_mode:
-		output("Running cmd: `%s` on node `%s` (%s)" % [cmd_text, (_base_instance_node.name as String if _base_instance_node else "none"), (_base_instance_node.get_class() if _base_instance_node else "none")])
-	var result: Variant = expr.execute(_cmd_inputs, _base_instance_node, true, false)
+		output("Running cmd: `%s` on `%s`" % [cmd_text, nice_print_obj(base_instance)])
+	var result: Variant = expr.execute(_cmd_inputs, base_instance, true, false)
 	if expr.has_execute_failed():
 		outputerr("Exec failed: %s" % expr.get_error_text())
 		return false
@@ -282,9 +298,25 @@ func _run_expression(cmd_text: String) -> bool:
 	if verbose_mode:
 		output("cmd Result: `%s`" % [result])
 	else:
-		output("cmd %s `%s` = `%s`" % [_base_instance_node.name as String if _base_instance_node else "", cmd_text, result])
+		output("cmd %s `%s` = `%s`" % [nice_print_obj(base_instance, false), cmd_text, result])
 	_last_result = result
 	return true
+
+func get_base_instance() -> Object:
+	if _base_instance_override == null:
+		return _base_instance_node
+	return _base_instance_override
+
+static func nice_print_obj(obj: Object, with_class := true) -> String:
+	if obj == null:
+		return "null"
+	if obj is Node:
+		var objn := obj as Node
+		if with_class:
+			return "%s (%s)" % [objn.name, objn.get_class()]
+		return objn.name
+	return obj.to_string()
+
 
 func _run_cmd(cmd_text: String) -> bool:
 	var processed := _preprocess_cmd(cmd_text)
@@ -360,7 +392,7 @@ func _check_expression(cmd_text: String, check_exec: Array) -> String:
 	
 	if exec_const_on_type:
 		# NOTE: gdscript doesn't have const calls so this can change things...
-		var _result: Variant = expr.execute(_cmd_inputs, _base_instance_node, false, true)
+		var _result: Variant = expr.execute(_cmd_inputs, get_base_instance(), false, true)
 		if expr.has_execute_failed():
 			check_exec[0] = false
 			# TODO ignore const call errors. cannot check cause error message sucks rn https://github.com/godotengine/godot/pull/114216
@@ -449,7 +481,9 @@ func _update_warning_label() -> void:
 		_warning_label.text = "[color=green]Valid[/color]"
 		return
 	
-	var base_text := ("base: %s(%s)\n" % [_base_instance_node.name, _base_instance_node.get_class()]) if _base_instance_node else ""
+	var base_text := "base: %s\n" % [nice_print_obj(get_base_instance())]
+	if get_base_instance() == null:
+		base_text = ""
 	#_warning_label.text = "[color=red]"+warnings+"[/color]"
 	_warning_label.text = "%s%s" % [base_text, warning_text]
 
@@ -559,7 +593,7 @@ func _on_cmd_code_edit_symbol_validate(_symbol: String) -> void:
 
 func _on_cmd_code_edit_symbol_lookup(symbol: String, _line: int, _column: int) -> void:
 	var help_text := ""
-	var target_object := _base_instance_node
+	var target_object := get_base_instance()
 	if target_object == null:
 		var sels := EditorInterface.get_selection().get_selected_nodes()
 		if sels:
