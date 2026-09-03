@@ -235,10 +235,15 @@ func _cmd_focus_on(target: Node = null) -> bool:
 		cmd_runner.output("No target or no EditorDebugger")
 		return false
 	if cmd_runner.editor_debugger.has_method("_focus_in_tree"):
+		# old version
 		@warning_ignore("unsafe_method_access")
 		cmd_runner.editor_debugger._focus_in_tree(target)
+		@warning_ignore("unsafe_property_access", "unsafe_method_access")
+	elif "_tree_view" in cmd_runner.editor_debugger and cmd_runner.editor_debugger._tree_view.has_method("focus_in_tree"):
+		@warning_ignore("unsafe_property_access", "unsafe_method_access")
+		cmd_runner.editor_debugger._tree_view.focus_in_tree(target)
 	else:
-		cmd_runner.outputerr("Cannot focus on target, EditorDebugger api")
+		cmd_runner.outputerr("Cannot focus on target, EditorDebugger API changed")
 	return true
 
 

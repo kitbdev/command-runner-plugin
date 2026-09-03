@@ -229,15 +229,18 @@ func _update_inputs() -> void:
 
 	if editor_debugger != null:
 		# get selected item
-		if "_tree_view" not in editor_debugger or not editor_debugger.has_method("_get_node_from_view"):
-			outputerr("EditorDebugger API changed")
-			return
-
-		# todo this isn't updated...
-		@warning_ignore("unsafe_property_access", "unsafe_method_access", "untyped_declaration")
-		var node_view = editor_debugger._tree_view.get_selected()
-		@warning_ignore("unsafe_method_access")
-		_base_instance_node = editor_debugger._get_node_from_view(node_view)
+		if "_tree_view" in editor_debugger and editor_debugger.has_method("_get_node_from_view"):
+			# old version
+			@warning_ignore("unsafe_property_access", "unsafe_method_access", "untyped_declaration")
+			var node_view = editor_debugger._tree_view.get_selected()
+			@warning_ignore("unsafe_method_access")
+			_base_instance_node = editor_debugger._get_node_from_view(node_view)
+			@warning_ignore("unsafe_property_access", "unsafe_method_access")
+		elif "_tree_view" in editor_debugger and editor_debugger._tree_view.has_method("get_selected_node"):
+			@warning_ignore("unsafe_property_access", "unsafe_method_access")
+			_base_instance_node = editor_debugger._tree_view.get_selected_node()
+		else:
+			if verbose_mode: outputerr("EditorDebugger API changed")
 
 	# If multiple selections are needed, get in command on EditorInterface
 	var selection := EditorInterface.get_selection().get_selected_nodes()[0] if not EditorInterface.get_selection().get_selected_nodes().is_empty() else null
