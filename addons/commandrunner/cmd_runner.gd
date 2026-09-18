@@ -1,5 +1,5 @@
 @tool
-extends Control
+extends CommandRunnerBase
 class_name CommandRunner
 
 ## Use print to output messages.
@@ -7,9 +7,6 @@ class_name CommandRunner
 
 ## Use editor toast to output messages.
 @export var toast_output := false
-
-## Slightly more verbose messages.
-@export var verbose_mode := false
 
 ## Execute commands detected as const when typing for better error messages.
 @export var exec_const_on_type := true
@@ -27,18 +24,8 @@ var _cmd_hist: PackedStringArray = []
 var _cmd_hist_index := 0
 var _max_hist_size := 100
 
-var _dynamic_cmd_items := {}
-var _auto_class_loads := []
-var _created_vars := []
-
 var _save_path := ".godot/editor/cmd_runner.cfg"
 
-var _cmd_inputs := []
-var _cmd_input_names: PackedStringArray = []
-var _base_cmd_input_names: PackedStringArray = []
-
-var _base_instance_node: Node = null
-var _base_instance_override: Object = null
 var _last_result: Variant = null
 
 var _custom_commands: CommandRunnerCustomCommands
@@ -49,6 +36,9 @@ func _ready() -> void:
 	
 	_custom_commands = CommandRunnerCustomCommands.new()
 	_custom_commands.cmd_runner = self
+	_custom_commands.cmd_runner_editor = self
+
+	CmdRunnerEditorDebuggerHandler.get_singleton().cmd_runner = self
 
 	# todo code complete somehow
 	#_cmd_input.code_completion_prefixes = [".", ",", "(", "=", "$", "@", "\"", "\'"]
@@ -117,14 +107,20 @@ func outputerr(output_text: String) -> void:
 		printerr(output_text)
 
 ## preprocess the input text and determine if it should await or is const.
-## returns [updated cmd text, awaitable, const cmd text portion ("" if none) ]
+## returns [updated cmd text, awaitable, const cmd text portion ("" if none), remote ]
 func _preprocess_cmd(cmd_text: String) -> Array:
 	#print("processing `%s`" % cmd_text)
 	var const_cmd_check_portion := cmd_text
 	var awaitable := false
+	var remote := false
 	if cmd_text.begins_with("await "):
 		cmd_text = cmd_text.right(-6)
 		awaitable = true
+		const_cmd_check_portion = ""
+	
+	if cmd_text.begins_with("remote ") or cmd_text.begins_with("r "):
+		cmd_text = cmd_text.right(-cmd_text.get_slice(" ",0).length() - 1)
+		remote = true
 		const_cmd_check_portion = ""
 	
 	var cmd_split := cmd_text.split(" ", false)
@@ -138,34 +134,64 @@ func _preprocess_cmd(cmd_text: String) -> Array:
 	var method_list := _custom_commands.get_method_list()
 	for method: Dictionary in method_list:
 		var mname: String = method.name
-		if not mname.begins_with("_cmd_") and not mname.begins_with("_cmdc_"):
+		var min_length := 6 # _cmd_ and a name
+		if mname.length() < min_length or not mname.begins_with("_cmd"):
 			continue
+		var flag_index := 4
+		var flag := mname[flag_index]
 		var is_func_const := false
-		if mname.begins_with("_cmdc_"):
-			is_func_const = true
-		var prefix_width := -5 if not is_func_const else -6
+		var is_editor_only := false
+		var is_remote_only := false
+		while flag != "_":
+			if flag == "c":
+				is_func_const = true
+			if flag == "e":
+				is_editor_only = true
+			if flag == "r":
+				is_remote_only = true
+			flag_index += 1
+			if flag_index >= mname.length():
+				flag_index = -1
+				break
+			flag = mname[flag_index]
+
+		if flag_index < 0:
+			continue
+		if is_editor_only and remote:
+			continue
+		if is_remote_only and not remote:
+			continue
+
+		var prefix_width := -flag_index - 1
 		if mname.right(prefix_width) != func_name:
 			continue
+		
+		# found matching command
 		#print(method)
 
 		var args := []
 		var remaining_arg_text := rest_of_cmd.strip_edges()
-		for arg: Dictionary in (method.args as Array):
-			var cut_arg := ""
+		var needed_args := method.args as Array
+		for arg: Dictionary in needed_args:
+			var cut_arg := remaining_arg_text
 			var narg := ""
+			
+			#var scope := 0
+			#scope += remaining_arg_text.countn('(')
+			#scope -= remaining_arg_text.countn(')')
 
+			#if needed_args.size() >
 			if remaining_arg_text.begins_with("\""):
 				# todo handle escape?
 				var cut_arg_end := remaining_arg_text.find("\"")
 				# if cut_arg_end < 0: #unterminated, use rest of str
 				cut_arg = remaining_arg_text.substr(1, cut_arg_end)
-			elif remaining_arg_text.contains(","):
-				cut_arg = remaining_arg_text.get_slice(",",0)
-			elif remaining_arg_text.contains(" "):
-				cut_arg = remaining_arg_text.get_slice(" ",0)
-			else:
-				cut_arg = remaining_arg_text
-			# print("'%s' - '%s'" % [remaining_arg_text, cut_arg])
+			# todo does not consider () scope
+			#elif remaining_arg_text.contains(","):
+			#	cut_arg = remaining_arg_text.get_slice(",",0)
+			#elif remaining_arg_text.contains(" "):
+			#	cut_arg = remaining_arg_text.get_slice(" ",0)
+			#print("'%s' - '%s'" % [remaining_arg_text, cut_arg])
 
 			narg = cut_arg
 			if arg.type == TYPE_STRING:
@@ -180,59 +206,12 @@ func _preprocess_cmd(cmd_text: String) -> Array:
 		var func_const_portion := updated_cmd
 		if not is_func_const:
 			func_const_portion = argtext
-		return [updated_cmd, awaitable, func_const_portion]
+		return [updated_cmd, awaitable, func_const_portion, remote]
 
-	return [cmd_text, awaitable, const_cmd_check_portion]
+	return [cmd_text, awaitable, const_cmd_check_portion, remote]
 
 func _clear_editor_debugger() -> void:
 	editor_debugger = null
-
-func get_all_vars() -> Dictionary:
-	return _dynamic_cmd_items
-
-func has_var(var_name: String) -> bool:
-	return _dynamic_cmd_items.has(var_name)
-
-func get_var_value(var_name: String) -> Variant:
-	return _dynamic_cmd_items[var_name]
-
-## Add a new variable to access in Expressions.
-## Use created=true to have the memory freed when done. 
-func add_var(var_name: String, value: Variant, created := false) -> bool:
-	if _base_cmd_input_names.has(var_name):
-		outputerr("Invalid name `%s` overrides existing" % var_name)
-		return false
-	if created:
-		_created_vars.push_back(var_name)
-	_dynamic_cmd_items[var_name] = value
-	_update_inputs()
-	return true
-
-func remove_var(var_name: String) -> bool:
-	if not _dynamic_cmd_items.has(var_name):
-		outputerr("Cannot erase var `%s`, does not exist" % var_name)
-		return false
-	if var_name in _created_vars:
-		var obj := _dynamic_cmd_items[var_name] as Object
-		if obj and obj is not RefCounted and (obj is not Node or (obj as Node).is_inside_tree()):
-			obj.free()
-	_dynamic_cmd_items.erase(var_name)
-	_auto_class_loads.erase(var_name)
-	_created_vars.erase(var_name)
-	_update_inputs()
-	return true
-
-func remove_all_vars() -> bool:
-	for var_name: String in _dynamic_cmd_items:
-		if var_name in _created_vars:
-			var obj := _dynamic_cmd_items[var_name] as Object
-			if obj and obj is not RefCounted and (obj is not Node or (obj as Node).is_inside_tree()):
-				obj.free()
-	_dynamic_cmd_items.clear()
-	_auto_class_loads.clear()
-	_created_vars.clear()
-	_update_inputs()
-	return true
 
 func _update_inputs() -> void:
 	if editor_debugger == null:
@@ -264,17 +243,7 @@ func _update_inputs() -> void:
 	_base_cmd_input_names = ["sel", "allvars", "cmd_runner", "cmds"]
 	_cmd_input_names = _base_cmd_input_names.duplicate()
 
-	for singleton: String in Engine.get_singleton_list():
-		_cmd_input_names.push_back(singleton)
-		_cmd_inputs.push_back(Engine.get_singleton(singleton))
-
-	for dynamic_cmd_item_name: Variant in _dynamic_cmd_items:
-		if not dynamic_cmd_item_name is String:
-			outputerr("invalid dynamic cmd item %s" % dynamic_cmd_item_name)
-			continue
-		var cmd_name := dynamic_cmd_item_name as String
-		_cmd_input_names.push_back(cmd_name)
-		_cmd_inputs.push_back(_dynamic_cmd_items[cmd_name])
+	_update_var_inputs()
 
 func _run_expression(cmd_text: String) -> bool:
 	#if not _base_instance_node:
@@ -289,7 +258,7 @@ func _run_expression(cmd_text: String) -> bool:
 
 	var base_instance := get_base_instance()
 	if verbose_mode:
-		output("Running cmd: `%s` on `%s`" % [cmd_text, nice_print_obj(base_instance)])
+		output("Running cmd: `%s` on `%s`" % [cmd_text, CmdRunnerUtil.nice_print_obj(base_instance)])
 	var result: Variant = expr.execute(_cmd_inputs, base_instance, true, false)
 	if expr.has_execute_failed():
 		outputerr("Exec failed: %s" % expr.get_error_text())
@@ -298,32 +267,34 @@ func _run_expression(cmd_text: String) -> bool:
 	if verbose_mode:
 		output("cmd Result: `%s`" % [result])
 	else:
-		output("cmd %s `%s` = `%s`" % [nice_print_obj(base_instance, false), cmd_text, result])
+		output("cmd %s `%s` = `%s`" % [CmdRunnerUtil.nice_print_obj(base_instance, false), cmd_text, result])
 	_last_result = result
 	return true
-
-func get_base_instance() -> Object:
-	if _base_instance_override == null:
-		return _base_instance_node
-	return _base_instance_override
-
-static func nice_print_obj(obj: Object, with_class := true) -> String:
-	if obj == null:
-		return "null"
-	if obj is Node:
-		var objn := obj as Node
-		if with_class:
-			return "%s (%s)" % [objn.name, objn.get_class()]
-		return objn.name
-	return obj.to_string()
-
 
 func _run_cmd(cmd_text: String) -> bool:
 	var processed := _preprocess_cmd(cmd_text)
 	cmd_text = processed[0]
-	var await_result: bool = processed[1]
 	if cmd_text.is_empty():
 		return true
+	var await_result: bool = processed[1]
+	var remote: bool = processed[3]
+	if remote:
+		var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
+		if not handler.is_active():
+			outputerr("Cannot send remote cmd, session not active")
+			return false
+		await handler.send_message_and_wait("run_cmd", [cmd_text])
+		var remote_success: Error = handler.response_data[0]
+		if remote_success != OK:
+			outputerr("Remote failed %s" % error_string(remote_success))
+			return false
+		if verbose_mode:
+			output("Remote success %s" % [handler.response_data])
+		if handler.response_data.size() < 2:
+			outputerr("Remote invalid response %s" % handler.response_data)
+			return false
+		var remote_worked: bool = handler.response_data[1] 
+		return remote_worked
 	var worked := _run_expression(cmd_text)
 	if worked and await_result:
 		await _last_result
@@ -371,10 +342,18 @@ func _check_expression(cmd_text: String, check_exec: Array) -> String:
 	cmd_text = processed[0]
 	#var await_result : bool = processed[1]
 	var const_portion: String = processed[2]
+	var remote : bool = processed[3]
 
 	if cmd_text.is_empty():
 		check_exec[0] = false
 		return "[color=yellow]No command[/color]"
+
+	if remote:
+		var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
+		# this can change without us knowing, so dont err
+		if not handler.is_active():
+			return "[color=red]No active remote session[/color] `%s`" % _bbescape(cmd_text)
+		return "Remote cmd `%s`" % _bbescape(cmd_text)
 
 	if const_portion.is_empty():
 		check_exec[0] = false
@@ -403,58 +382,16 @@ func _check_expression(cmd_text: String, check_exec: Array) -> String:
 			for missing_msg: String in err_msgs_missing_class:
 				var err_text := expr.get_error_text()
 				if err_text.contains(missing_msg):
-					_auto_add_class(const_portion)
+					var update := _auto_add_class(const_portion)
+					if update:
+						# Re-update
+						_update_warning_label.call_deferred()
 					break
 
 			return "[color=red]Error:[/color] %s `%s`" % [_bbescape(expr.get_error_text()), _bbescape(const_portion)]
 
 	#return ""
 	return "[color=darkgreen]%s[/color]" % _bbescape(cmd_text)
-
-static func is_symbol(p_char: String) -> bool:
-	return p_char != '_' && ((p_char >= '!' && p_char <= '/') || (p_char >= ':' && p_char <= '@') || (p_char >= '[' && p_char <= '`') || (p_char >= '{' && p_char <= '~') || p_char == '\t' || p_char == ' ')
-
-func _auto_add_class(cmd_msg: String) -> void:
-	# automatically create new classes from the given command.
-	# This is so static methods can be called without needing to manually create a class.
-	# Do not use ClassDB class list, it crashes.
-	# Instead check each word from the command to see if it is a class.
-	var cname := ""
-	var potential_classes := []
-	var in_word := false
-	for i in cmd_msg.length():
-		var c := cmd_msg[i]
-		if is_symbol(c):
-			in_word = false
-			continue
-		if not in_word:
-			if i > 0 and not is_symbol(cmd_msg[i - 1]):
-				continue
-			in_word = true
-			potential_classes.push_back("")
-		potential_classes[-1] += c
-
-	#print("found potentials: ", potential_classes)
-	for cl: String in potential_classes:
-		if not cl.is_empty() and ClassDB.class_exists(cl) and ClassDB.can_instantiate(cl):
-			cname = cl
-			break
-	if cname.is_empty():
-		return
-	if _auto_class_loads.has(cname) or has_var(cname):
-		return
-
-	#print("found new ", cname)
-	var new_instance: Object = ClassDB.instantiate(cname)
-	if new_instance == null:
-		printerr("Command Runner failed to create new instance of `%s`" % cname)
-
-	# todo remove later if not needed somehow?
-	_auto_class_loads.push_back(cname)
-	add_var(cname, new_instance, true)
-
-	# Re-update
-	_update_warning_label.call_deferred()
 
 func _update_warning_label() -> void:
 	var cmd_txt := _cmd_input.text
@@ -481,7 +418,7 @@ func _update_warning_label() -> void:
 		_warning_label.text = "[color=green]Valid[/color]"
 		return
 	
-	var base_text := "base: %s\n" % [nice_print_obj(get_base_instance())]
+	var base_text := "base: %s\n" % [CmdRunnerUtil.nice_print_obj(get_base_instance())]
 	if get_base_instance() == null:
 		base_text = ""
 	#_warning_label.text = "[color=red]"+warnings+"[/color]"
@@ -542,7 +479,7 @@ func _on_gui_input(event: InputEvent) -> void:
 	if kev and not kev.is_echo() and kev.pressed:
 		if kev.keycode == KEY_ENTER and not kev.is_command_or_control_pressed():
 			_run_cmds()
-			accept_event()
+			_cmd_input.accept_event()
 		# todo cannot use normal key up...
 		var c_line := _cmd_input.get_caret_line()
 		var c_col := _cmd_input.get_caret_column()
@@ -559,7 +496,7 @@ func _on_gui_input(event: InputEvent) -> void:
 				_cmd_hist_index -= 1
 			assert(_cmd_hist_index < _cmd_hist.size() and _cmd_hist_index >= 0)
 			_cmd_input.text = _cmd_hist[_cmd_hist_index]
-			accept_event()
+			_cmd_input.accept_event()
 		if kev.keycode == KEY_DOWN and at_bottom:
 			if _cmd_hist_index >= _cmd_hist.size() - 1:
 				# todo store wip text?
@@ -568,7 +505,7 @@ func _on_gui_input(event: InputEvent) -> void:
 			_cmd_hist_index += 1
 			assert(_cmd_hist_index < _cmd_hist.size() and _cmd_hist_index >= 0)
 			_cmd_input.text = _cmd_hist[_cmd_hist_index]
-			accept_event()
+			_cmd_input.accept_event()
 
 
 func _on_symbol_hovered(_symbol: String, _line: int, _column: int) -> void:

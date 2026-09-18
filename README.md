@@ -7,7 +7,8 @@ Can be used with EditorDebugger to get parts of the editor more easily.
 https://github.com/Zylann/godot_editor_debugger_plugin
 
 Use to:
-Change values on objects
-Open a new floating inspector
-Monitor a signal and print when it is emitted.
+Get and set values on any object
+Open a new floating inspector `inspect <object>`
+Monitor a signal and print when it is emitted. `track <signal name>`
+Reload a plugin `reload`
 etc

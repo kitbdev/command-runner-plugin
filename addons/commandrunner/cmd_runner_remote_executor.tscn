@@ -1,0 +1,7 @@
+[gd_scene format=3 uid="uid://cxtsngk24p1kf"]
+
+[ext_resource type="Script" uid="uid://dle833pse1v4e" path="res://addons/commandrunner/cmd_runner_debugger_remote_executor.gd" id="1_m8eku"]
+
+[node name="CmdRunnerRemoteExecutor" type="Node" unique_id=57502387]
+script = ExtResource("1_m8eku")
+metadata/_custom_type_script = "uid://dle833pse1v4e"

@@ -1,7 +1,10 @@
+@tool
 extends RefCounted
 class_name CommandRunnerCustomCommands
 
-var cmd_runner: CommandRunner
+var cmd_runner: CommandRunnerBase
+
+var cmd_runner_editor: CommandRunner
 
 ## All functions that start with `_cmd_` can be run by typing the rest of the function name. No parenthesis 
 ## These may take parameters, comma separated
@@ -19,16 +22,23 @@ const BUILTIN_TYPES: Array = ["NIL", "bool", "int", "float", "String", "Vector2"
 
 ## Output list of commands and variables.
 func _cmdc_help() -> bool:
+	var is_in_editor := cmd_runner_editor != null
 	var cmds := []
 	for method in get_method_list():
 		var mname: String = method.name
 		var cmd_name := ""
-		if mname.begins_with("_cmd_"):
-			cmd_name = mname.right(-5)
-		elif mname.begins_with("_cmdc_"):
-			cmd_name = mname.right(-6)
-		else:
+		if not mname.begins_with("_cmd"):
 			continue
+		var prefix_end := mname.find("_",1)
+		if prefix_end < 0:
+			continue
+
+		var e_flag := mname.find("e", 4)
+		var editor_only_cmd := e_flag > 0 and e_flag < prefix_end
+		if not is_in_editor and editor_only_cmd:
+			continue
+		
+		cmd_name = mname.right(-prefix_end - 1)
 		
 		#(method.args as Array).reduce(func(acc, val): return val.name)
 		var names := (method.args as Array).map(func(val: Variant) -> String:
@@ -73,24 +83,25 @@ func _cmd_q() -> bool:
 	return true
 
 ## Toggle toast output
-func _cmd_toast() -> bool:
-	cmd_runner.toast_output = not cmd_runner.toast_output
-	cmd_runner.output("cmd_runner.toast_output %s" % cmd_runner.toast_output, true)
+func _cmde_toast() -> bool:
+	cmd_runner_editor.toast_output = not cmd_runner_editor.toast_output
+	cmd_runner_editor.output("cmd_runner_editor.toast_output %s" % cmd_runner_editor.toast_output, true)
 	return true
 
 ## Clear history log
-func _cmd_cls() -> bool:
-	cmd_runner.clear_history_container()
+func _cmde_cls() -> bool:
+	cmd_runner_editor.clear_history_container()
 	return true
 
 ## Clear history
-func _cmd_clear() -> bool:
+func _cmde_clear() -> bool:
 	# Defer to not add this command to the history
-	cmd_runner.clear_history.call_deferred()
+	cmd_runner_editor.clear_history.call_deferred()
 	return true
 
+# todo find a way to open remotely?
 ## Open Editor Help documentation for the class of the given object.
-func _cmd_docs(target: Object = null) -> bool:
+func _cmde_docs(target: Object = null) -> bool:
 	if target == null:
 		cmd_runner.outputerr("No target to open docs!")
 		return false
@@ -256,25 +267,68 @@ func _cmd_trackclear(signame: String, target_obj: Object = null) -> bool:
 	return true
 
 ## Use EditorDebugger to focus on a node
-func _cmd_focus_on(target: Node = null) -> bool:
-	if target == null or cmd_runner.editor_debugger == null:
-		cmd_runner.output("No target or no EditorDebugger")
+func _cmde_focus_on(target: Node = null) -> bool:
+	if target == null or cmd_runner_editor.editor_debugger == null:
+		cmd_runner_editor.output("No target or no EditorDebugger")
 		return false
-	if cmd_runner.editor_debugger.has_method("_focus_in_tree"):
+	if cmd_runner_editor.editor_debugger.has_method("_focus_in_tree"):
 		# old version
 		@warning_ignore("unsafe_method_access")
-		cmd_runner.editor_debugger._focus_in_tree(target)
+		cmd_runner_editor.editor_debugger._focus_in_tree(target)
 		@warning_ignore("unsafe_property_access", "unsafe_method_access")
-	elif "_tree_view" in cmd_runner.editor_debugger and cmd_runner.editor_debugger._tree_view.has_method("focus_in_tree"):
+	elif "_tree_view" in cmd_runner_editor.editor_debugger and cmd_runner_editor.editor_debugger._tree_view.has_method("focus_in_tree"):
 		@warning_ignore("unsafe_property_access", "unsafe_method_access")
-		cmd_runner.editor_debugger._tree_view.focus_in_tree(target)
+		cmd_runner_editor.editor_debugger._tree_view.focus_in_tree(target)
 	else:
-		cmd_runner.outputerr("Cannot focus on target, EditorDebugger API changed")
+		cmd_runner_editor.outputerr("Cannot focus on target, EditorDebugger API changed")
 	return true
 
+## Open in main inspector
+func _cmde_inspectmain(target: Object = null) -> bool:
+	EditorInterface.inspect_object(target)
+	return true
+
+func _deserialize(target: Object) -> Array:
+	# scene\debugger\scene_debugger_object.cpp
+	var props := []
+	var pl := target.get_property_list()
+	#props.resize(pl.size())
+	for p: Dictionary in pl:
+		var prop := []
+		var pname: String = p["name"]
+		prop.push_back(pname);
+		prop.push_back(p["type"]);
+		prop.push_back(p["hint"]);
+		prop.push_back(p["hint_string"]);
+		prop.push_back(p["usage"]);
+		prop.push_back(p.get(pname, null));
+		props.push_back(prop)
+
+	var arr := [
+		target.get_instance_id(),
+		target.get_class(),
+		props
+	]
+	return arr
+
+## Open in main inspector
+func _cmdr_inspectmain(target: Object = null) -> bool:
+	print("inspecting ", CmdRunnerUtil.nice_print_obj(target))
+	#EditorInterface.inspect_object(target)
+	# cmd_runner.send_message("")
+	var inspect_msg := "scene:remote_objects_selected"
+	var data := [
+		# remote object ids
+		_deserialize(target),
+		# update selection?
+		#true
+	]
+		
+	EngineDebugger.send_message(inspect_msg, data)
+	return true
 
 ## Open a new floating inspector
-func _cmd_inspect(target: Object = null) -> bool:
+func _cmde_inspect(target: Object = null) -> bool:
 	#if last_result !=null and last_result is Object:
 		#target = last_result
 	#if target == null:
@@ -413,7 +467,7 @@ func _open_in_new_inspector(obj: Object) -> void:
 		(obj as Node).renamed.connect(_set_name.bind(obj))
 
 ## Reload plugin
-func _cmd_reload(plugin_name := "") -> bool:
+func _cmde_reload(plugin_name := "") -> bool:
 	if plugin_name.is_empty():
 		# "commandrunner"
 		plugin_name = (get_script() as Script).resource_path.get_base_dir() + "/plugin.cfg"
@@ -429,4 +483,9 @@ func _cmd_reload(plugin_name := "") -> bool:
 
 	reload_func.call()
 
+	return true
+
+func _cmd_remtest() -> bool:
+	var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
+	handler.send_msg("wow")
 	return true
