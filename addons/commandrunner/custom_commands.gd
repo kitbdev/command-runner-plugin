@@ -485,7 +485,12 @@ func _cmde_reload(plugin_name := "") -> bool:
 
 	return true
 
-func _cmd_remtest() -> bool:
-	var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
-	handler.send_msg("wow")
+## Wait for a duration in seconds, `await sec 2`
+func _cmd_sec(duration := 1.0) -> bool:
+	await cmd_runner.get_tree().create_timer(duration).timeout
+	return true
+
+## Wait for a frame, `await frame`
+func _cmd_frame() -> bool:
+	await cmd_runner.get_tree().process_frame
 	return true

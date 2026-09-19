@@ -42,7 +42,8 @@ func _ready() -> void:
 
 	# todo code complete somehow
 	#_cmd_input.code_completion_prefixes = [".", ",", "(", "=", "$", "@", "\"", "\'"]
-	#_cmd_input.code_completion_requested.connect(_complete_request)
+	_cmd_input.code_completion_prefixes = [".", ",", "(", "=", "\"", "\'"]
+	_cmd_input.code_completion_requested.connect(_complete_request)
 
 	_load_hist()
 	_update_run_button_vis()
@@ -515,15 +516,172 @@ func _on_symbol_hovered(_symbol: String, _line: int, _column: int) -> void:
 
 func _complete_request() -> void:
 	pass
-	#var ctext = _cmd_input.get_text_for_code_completion()
-	# Expression has no built in completion, so it would be a pain
+	# Expression has no built in completion, so its a pain
 	# gdscripts one isnt exposed either...
 	
-	#var gdscript_lang : ScriptLanguage
-	#gdscript_lang.
-	#update_code_completion_options(true)
-	#GDScriptLanguageProtocol
-	# todo the code complete popup would be in the way anyway since its not a popup
+	var cmd_line_text := _cmd_input.get_line(_cmd_input.get_caret_line())
+	
+	# using rfind is a mess, so many edge cases
+	var splits := cmd_line_text.split(";")
+	var cmd_line_caret_line := _cmd_input.get_caret_line()
+	var cmd_line_column := _cmd_input.get_caret_column()
+	var acc := 0
+	var cmd_text := ""
+	var cmd_column := 0 
+	for split in splits:
+		var last_acc := acc
+		acc += split.length()
+		acc += 1 # for splitter ;
+		if acc > cmd_line_column:
+			cmd_text = split
+			cmd_column = cmd_line_column - last_acc
+			break
+	
+	var col_offset := -cmd_column + cmd_line_column
+
+	var cmd_before_text := cmd_text.left(cmd_column)
+	print("code completion on `%s` col %s, `%s`" % [cmd_text, cmd_column, cmd_before_text])
+	assert(cmd_column >= 0 and cmd_column <= cmd_text.length())
+	
+	var preprocessed := _preprocess_cmd(cmd_text)
+	var preprocessed_full_text: String = preprocessed[0]
+	var preprocessed_cmd_text: String = preprocessed[2]
+	print("p: `%s` `%s`" % [preprocessed_cmd_text, preprocessed_full_text])
+
+	
+	if _cmd_input.is_in_comment(cmd_line_caret_line, cmd_line_column) != -1:
+		printerr("CmdRunner expression in comment?")
+		return
+	if _cmd_input.is_in_string(cmd_line_caret_line, cmd_line_column) != -1:
+		#var str_start := _cmd_input.get_delimiter_start_position(cmd_line_caret_line, cmd_line_column)
+		print("CmdRunner expression in string")
+		return
+
+	# assume it is well formed
+	## find current scope
+	#var scope_paren := 0
+	#var last_scope_paren_index := 0
+	##var scope_bracket := 0
+	##var last_scope_bracket_index := 0
+	#for i in range(cmd_text):
+	#	var c := cmd_text[i]
+	#	if c == '(':
+	#		scope_paren += 1
+	#		last_scope_paren_index = i
+	#	if c == ')':
+	#		scope_paren -= 1
+	
+	# find start of relevant section
+	var section_start := cmd_column
+	var cur_word_start := cmd_column
+	var found_word_start := false
+	var cur_paren_scope := 0
+	var cur_brace_scope := 0
+	var is_in_string_until := -1
+	
+	for i in range(cmd_before_text.length() - 1, -1, -1):
+		var c := cmd_before_text[i]
+		var symb := is_symbol(c)
+		#print("i %s `%s` symb %s sect %s word %s str %s br %s" %[i,c,symb,section_start,cur_word_start, is_in_string_until, cur_brace_scope])
+		if not found_word_start:
+			if symb:
+				found_word_start = true
+			else:
+				cur_word_start = i
+
+		if is_in_string_until >= 0 and i >= is_in_string_until:
+			#print("skipping %s %s" %[i, c])
+			continue
+		if _cmd_input.has_string_delimiter(c):
+			#var d_in_str :=  _cmd_input.is_in_string(cmd_line_caret_line, i + col_offset - 1)
+			#print("i %s ofs %s instr %s" % [i, i + col_offset - 1, d_in_str])
+			var str_start := _cmd_input.get_delimiter_start_position(cmd_line_caret_line, i + col_offset - 1)
+			if str_start.x == -1:
+				printerr("CmdRunner no end to string!")
+				break
+			var str_start_col : int = int(str_start.x) - 1 - col_offset
+			#print("strstart %s i %s" % [str_start_col, i])
+			is_in_string_until = str_start_col
+			section_start = is_in_string_until
+			continue
+
+		if c == ",":
+			# going to a prev param
+			break
+		elif c == ")":
+			cur_paren_scope += 1
+		elif c == "(":
+			cur_paren_scope -= 1
+			if cur_paren_scope < 0:
+				# out of scope
+				break
+		elif c == "]":
+			cur_brace_scope += 1
+		elif c == "[":
+			cur_brace_scope -= 1
+			if cur_brace_scope < 0:
+				# out of scope
+				break
+		section_start = i
+	
+	
+	var complete_section := cmd_before_text if section_start == 0 else cmd_before_text.right(-section_start)
+	var cur_word := cmd_before_text if cur_word_start == 0 else cmd_before_text.right(-cur_word_start)
+	var parsable_section := complete_section.trim_suffix(cur_word)
+	if parsable_section.ends_with("."):
+		parsable_section = parsable_section.left(-1)
+	
+	print("section `%s` (%s) word `%s` (%s) p `%s`" % [complete_section, section_start, cur_word, cur_word_start, parsable_section])
+	
+	
+	var base_result: Variant = null
+	if not parsable_section.is_empty():
+		var expr := Expression.new()
+		var err := expr.parse(parsable_section, _cmd_input_names)
+		if err != OK:
+			#print("completion Parse error. cmd: `%s` error:%s %s" % [cmd_text, err, expr.get_error_text()])
+			return 
+		
+		var base_instance := get_base_instance()
+		# hopefully its actually const...
+		base_result = expr.execute(_cmd_inputs, base_instance, false, true)
+		if expr.has_execute_failed():
+			#print("completion Exec failed: %s" % expr.get_error_text())
+			return
+		#print("completion success ", base_result)
+	
+	var result_items := []
+	
+	if base_result != null:
+		if base_result is Object:
+			var base_obj := base_result as Object
+			var props: Array = base_obj.get_property_list()
+			for prop: Dictionary in props:
+				#var x : BitField[PropertyUsageFlags]
+				if not prop["usage"] & PROPERTY_USAGE_STORAGE:
+					continue
+				result_items.push_back({
+					"insert": prop["name"],
+					"kind": CodeEdit.CodeCompletionKind.KIND_CLASS
+				})
+		#if base_result is String:
+		#	var base_str := base_result as String
+		#	base_str.bigrams()
+
+
+	#if cmd_text == "d":
+	#	result_items.push_back("a")
+	
+	print("items ", result_items)
+	
+	if result_items.is_empty():
+		return
+	
+	for result_item: Dictionary in result_items:
+		var ckind: CodeEdit.CodeCompletionKind = result_item["kind"]
+		var insert: String = result_item["insert"]
+		_cmd_input.add_code_completion_option(ckind, insert, insert)
+	_cmd_input.update_code_completion_options(false)
 
 func _on_cmd_code_edit_symbol_validate(_symbol: String) -> void:
 	_cmd_input.set_symbol_lookup_word_as_valid(true)

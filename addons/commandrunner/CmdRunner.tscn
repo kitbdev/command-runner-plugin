@@ -67,6 +67,7 @@ highlight_all_occurrences = true
 symbol_lookup_on_click = true
 gutters_draw_line_numbers = true
 gutters_line_numbers_min_digits = 1
+code_completion_enabled = true
 
 [node name="CmdRunButton" type="Button" parent="." unique_id=1620563512]
 unique_name_in_owner = true
