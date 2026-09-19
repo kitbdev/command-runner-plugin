@@ -2,7 +2,7 @@
 extends EditorDebuggerPlugin
 class_name CmdRunnerEditorDebuggerHandler
 
-static var _singleton : CmdRunnerEditorDebuggerHandler = null
+static var _singleton: CmdRunnerEditorDebuggerHandler = null
 
 static func get_singleton() -> CmdRunnerEditorDebuggerHandler:
 	if _singleton == null:
@@ -11,11 +11,11 @@ static func get_singleton() -> CmdRunnerEditorDebuggerHandler:
 
 const message_prefix := "command_runner"
 
-var cmd_runner : CommandRunner
+var cmd_runner: CommandRunner
 
 var is_setup := false
 signal response_received
-var response_data : Array
+var response_data: Array
 
 const executor_scene_uid = "uid://cxtsngk24p1kf"
 #const executor_scene_path = "res://addons/commandrunner/cmd_runner_remote_executor.tscn"
@@ -25,7 +25,7 @@ func _has_capture(capture: String) -> bool:
 
 func _capture(message: String, data: Array, session_id: int) -> bool:
 	print("CmdRunner handler got message %s %s session %s" % [message, data, session_id])
-	message = message.trim_prefix(message_prefix+":")
+	message = message.trim_prefix(message_prefix + ":")
 	if message == "output":
 		if data.size() != 2:
 			printerr("Command Runner capture invalid data size")
@@ -75,18 +75,18 @@ func is_active() -> bool:
 
 func _send_message_to(message: String, data: Array = [], session_id: int = 0) -> bool:
 	var sent := false
-	var sessions : Array
+	var sessions: Array
 	if session_id == -1:
 		sessions = get_sessions()
 	else:
-		sessions = [ get_session(session_id) ]
+		sessions = [get_session(session_id)]
 	print("sending '%s' to %s sessions" % [message, sessions.size()])
 
-	for session : EditorDebuggerSession in sessions:
+	for session: EditorDebuggerSession in sessions:
 		if not session.is_active():
 			continue
 		#print("sending to ", session)
-		session.send_message(message_prefix+":"+message, data)
+		session.send_message(message_prefix + ":" + message, data)
 		sent = true
 	return sent
 
@@ -102,7 +102,7 @@ func send_message(message: String, data: Array = [], session_id: int = 0) -> voi
 
 
 func send_message_and_wait(message: String, data: Array = [], session_id: int = 0, timeout := 3.0) -> void:
-	var send_tween : Tween = EditorInterface.get_base_control().get_tree().create_tween()
+	var send_tween: Tween = EditorInterface.get_base_control().get_tree().create_tween()
 	send_tween.tween_await(response_received).set_timeout(timeout)
 	send_tween.parallel().tween_callback(send_message.bind(message, data, session_id))
 	#send_tween.tween_callback(print.bind("sent msg")) # todo this waits for both?

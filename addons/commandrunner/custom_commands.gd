@@ -20,25 +20,14 @@ var cmd_runner_editor: CommandRunner
 
 const BUILTIN_TYPES: Array = ["NIL", "bool", "int", "float", "String", "Vector2", "Vector2I", "Rect2", "Rect2I", "Vector3", "Vector3I", "Transform2D", "Vector4", "Vector4I", "Plane", "Quaternion", "Aabb", "Basis", "Transform3D", "Projection", "Color", "StringName", "NodePath", "Rid", "Object", "Callable", "Signal", "Dictionary", "Array", "PackedByteArray", "PackedInt32Array", "PackedInt64Array", "PackedFloat32Array", "PackedFloat64Array", "PackedStringArray", "PackedVector2Array", "PackedVector3Array", "PackedColorArray", "PackedVector4Array", "MAX", ]
 
+
 ## Output list of commands and variables.
 func _cmdc_help() -> bool:
 	var is_in_editor := cmd_runner_editor != null
 	var cmds := []
-	for method in get_method_list():
-		var mname: String = method.name
-		var cmd_name := ""
-		if not mname.begins_with("_cmd"):
-			continue
-		var prefix_end := mname.find("_",1)
-		if prefix_end < 0:
-			continue
-
-		var e_flag := mname.find("e", 4)
-		var editor_only_cmd := e_flag > 0 and e_flag < prefix_end
-		if not is_in_editor and editor_only_cmd:
-			continue
-		
-		cmd_name = mname.right(-prefix_end - 1)
+	var cmd_mis := cmd_runner.get_all_cmds(not is_in_editor)
+	for method in cmd_mis:
+		var cmd_name: String = method.cmd_name
 		
 		#(method.args as Array).reduce(func(acc, val): return val.name)
 		var names := (method.args as Array).map(func(val: Variant) -> String:
@@ -50,6 +39,7 @@ func _cmdc_help() -> bool:
 		if not names.is_empty():
 			cmd_name += "(" + ",".join(names) + ")"
 		
+		var mname: String = method.name
 		# Get descriptions by parsing the file for doc comments
 		var source := (get_script() as Script).source_code
 		var method_at := source.find(mname)

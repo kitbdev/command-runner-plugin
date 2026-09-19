@@ -6,10 +6,8 @@ const message_prefix := "command_runner"
 
 var selection: Object = null
 
-var _custom_commands: CommandRunnerCustomCommands
-
 func _enter_tree() -> void:
-	EngineDebugger.register_message_capture(message_prefix,_message_capture)
+	EngineDebugger.register_message_capture(message_prefix, _message_capture)
 
 func _exit_tree() -> void:
 	EngineDebugger.unregister_message_capture(message_prefix)
@@ -45,7 +43,7 @@ func _message_capture(message: String, data: Array) -> bool:
 	return false
 
 func send_message(message: String, data: Array) -> void:
-	EngineDebugger.send_message(message_prefix+":"+message, data)
+	EngineDebugger.send_message(message_prefix + ":" + message, data)
 
 func output(output_text: String, is_escaped: bool = false) -> void:
 	send_message("output", ["remote: " + output_text, is_escaped])

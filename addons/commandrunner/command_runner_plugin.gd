@@ -1,10 +1,10 @@
 @tool
 extends EditorPlugin
 
-var dock : EditorDock
+var dock: EditorDock
 const CMD_RUNNER = preload("CmdRunner.tscn")
 
-var debugger_handler : EditorDebuggerPlugin
+var debugger_handler: EditorDebuggerPlugin
 
 func _enter_tree() -> void:
 	var cmd_runner := CMD_RUNNER.instantiate()

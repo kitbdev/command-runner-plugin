@@ -17,6 +17,8 @@ var _created_vars := []
 var _base_instance_node: Node = null
 var _base_instance_override: Object = null
 
+var _custom_commands: CommandRunnerCustomCommands = null
+
 @abstract
 func output(output_text: String, is_escaped: bool = false) -> void
 
@@ -135,3 +137,55 @@ func _auto_add_class(cmd_msg: String) -> bool:
 
 static func is_symbol(p_char: String) -> bool:
 	return p_char != '_' && ((p_char >= '!' && p_char <= '/') || (p_char >= ':' && p_char <= '@') || (p_char >= '[' && p_char <= '`') || (p_char >= '{' && p_char <= '~') || p_char == '\t' || p_char == ' ')
+
+
+#func get_matching_cmd(func_name: String, remote_only: bool) -> Dictionary
+
+## get all commands
+##[br] same as [method Object.get_method_list]() mostly
+##[br] - name is the name of the method, as a String;
+##[br] - args is an Array of dictionaries representing the arguments;
+##[br] - default_args is the default arguments as an Array of variants;
+##[br] - flags is a combination of [constant Object.MethodFlags];
+##[br] - id is the method's internal identifier int;
+##[br] - return is the returned value, as a Dictionary;
+##[br] - cmd_name the actual cmd name
+##[br] Note: The dictionaries of args and return are formatted identically to the results of [method Object.get_property_list](), although not all entries are used.
+func get_all_cmds(remote_only: bool) -> Array[Dictionary]:
+	var cmds: Array[Dictionary] = []
+	for method in _custom_commands.get_method_list():
+		var mname: String = method.name
+		var min_length := 6 # _cmd_ and a name
+		if mname.length() < min_length or not mname.begins_with("_cmd"):
+			continue
+		var flag_index := 4
+		var flag := mname[flag_index]
+		var is_func_const := false
+		var is_editor_only := false
+		var is_remote_only := false
+		while flag != "_":
+			if flag == "c":
+				is_func_const = true
+			if flag == "e":
+				is_editor_only = true
+			if flag == "r":
+				is_remote_only = true
+			flag_index += 1
+			if flag_index >= mname.length():
+				flag_index = -1
+				break
+			flag = mname[flag_index]
+
+		if flag_index < 0:
+			continue
+		if is_editor_only and remote_only:
+			continue
+		if is_remote_only and not remote_only:
+			continue
+
+		var prefix_width := -flag_index - 1
+		
+		method["cmd_name"] = mname.right(prefix_width)
+		method["const"] = is_func_const
+		cmds.push_back(method)
+	return cmds

@@ -28,8 +28,6 @@ var _save_path := ".godot/editor/cmd_runner.cfg"
 
 var _last_result: Variant = null
 
-var _custom_commands: CommandRunnerCustomCommands
-
 func _ready() -> void:
 	if is_part_of_edited_scene():
 		return
@@ -40,9 +38,8 @@ func _ready() -> void:
 
 	CmdRunnerEditorDebuggerHandler.get_singleton().cmd_runner = self
 
-	# todo code complete somehow
 	#_cmd_input.code_completion_prefixes = [".", ",", "(", "=", "$", "@", "\"", "\'"]
-	_cmd_input.code_completion_prefixes = [".", ",", "(", "=", "\"", "\'"]
+	_cmd_input.code_completion_prefixes = [".", ",", "(", "=", "\"", "\'", ";"]
 	_cmd_input.code_completion_requested.connect(_complete_request)
 
 	_load_hist()
@@ -111,105 +108,149 @@ func outputerr(output_text: String) -> void:
 ## returns [updated cmd text, awaitable, const cmd text portion ("" if none), remote ]
 func _preprocess_cmd(cmd_text: String) -> Array:
 	#print("processing `%s`" % cmd_text)
+	cmd_text = cmd_text.strip_edges()
 	var const_cmd_check_portion := cmd_text
 	var awaitable := false
-	var remote := false
+	var exec_on_remote := false
 	if cmd_text.begins_with("await "):
 		cmd_text = cmd_text.right(-6)
 		awaitable = true
 		const_cmd_check_portion = ""
+		cmd_text = cmd_text.strip_edges()
 	
 	if cmd_text.begins_with("remote ") or cmd_text.begins_with("r "):
-		cmd_text = cmd_text.right(-cmd_text.get_slice(" ",0).length() - 1)
-		remote = true
+		cmd_text = cmd_text.right(-cmd_text.get_slice(" ", 0).length() - 1)
+		exec_on_remote = true
 		const_cmd_check_portion = ""
+		cmd_text = cmd_text.strip_edges()
 	
-	var cmd_split := cmd_text.split(" ", false)
-	var func_name := cmd_split[0]
-	var rest_of_cmd := cmd_text.split(" ", false, 1)[1] if cmd_split.size() > 1 else ""
+	var updated_cmd_text := cmd_text
 	
 	# Handle custom functions
 	# Replace the first word with method implementation if it matches
 	# This allows a command-like syntax while getting full parsing with Expression
 
-	var method_list := _custom_commands.get_method_list()
-	for method: Dictionary in method_list:
-		var mname: String = method.name
-		var min_length := 6 # _cmd_ and a name
-		if mname.length() < min_length or not mname.begins_with("_cmd"):
+	#var cmd_split := cmd_text.split(" ", false)
+	#var func_name := cmd_split[0]
+	var func_name := cmd_text.get_slice(" ", 0)
+	var cmd_mi_list := get_all_cmds(exec_on_remote)
+	var cmd_method: Dictionary
+	for method: Dictionary in cmd_mi_list:
+		var cmd_name: String = method.cmd_name
+		if cmd_name != func_name:
 			continue
-		var flag_index := 4
-		var flag := mname[flag_index]
-		var is_func_const := false
-		var is_editor_only := false
-		var is_remote_only := false
-		while flag != "_":
-			if flag == "c":
-				is_func_const = true
-			if flag == "e":
-				is_editor_only = true
-			if flag == "r":
-				is_remote_only = true
-			flag_index += 1
-			if flag_index >= mname.length():
-				flag_index = -1
+		cmd_method = method
+
+	if cmd_method.is_empty():
+		return [updated_cmd_text, awaitable, const_cmd_check_portion, exec_on_remote]
+
+	# found matching command
+	#print(method)
+	
+	var mname: String = cmd_method.name
+	var is_func_const: bool = cmd_method.const
+	const_cmd_check_portion = ""
+
+	var arg_text := ""
+	if cmd_text.contains(" "):
+		arg_text = cmd_text.split(" ", false, 1)[1].strip_edges()
+	#print("arg_text `%s` cmd_text `%s` m %s" % [arg_text, updated_cmd_text, cmd_method])
+
+	if arg_text.is_empty():
+		# hopefully the cmd didn't need args
+		updated_cmd_text = "cmds.%s()" % [mname]
+		if is_func_const:
+			const_cmd_check_portion = updated_cmd_text
+		#print("empty ", updated_cmd_text)
+		return [updated_cmd_text, awaitable, const_cmd_check_portion, exec_on_remote]
+		
+
+	var parser_codeedit := CodeEdit.new()
+	parser_codeedit.queue_free()
+	parser_codeedit.delimiter_strings = _cmd_input.delimiter_strings
+	parser_codeedit.text = arg_text
+
+	var needed_args := cmd_method.args as Array[Dictionary]
+	var cur_needed_arg_index := 0
+	var args := []
+	var cur_paren_scope := 0
+	var cur_brace_scope := 0
+	var is_in_string_until := -1
+	var cur_arg_start := 0
+	for i in range(arg_text.length()):
+		var c := arg_text[i]
+		var prev_c := "" if i == 0 else arg_text[i - 1]
+		#print("i %s `%s` narg:%s p%s"%[i, c, cur_needed_arg_index, cur_paren_scope])
+		if i <= is_in_string_until:
+			#print("skipping %s %s" %[i, c])
+			continue
+		if parser_codeedit.has_string_delimiter(c):
+			#var d_in_str :=  parser_codeedit.is_in_string(cmd_line_caret_line, i + col_offset - 1)
+			#print("i %s ofs %s instr %s" % [i, i + col_offset - 1, d_in_str])
+			var str_end := parser_codeedit.get_delimiter_end_position(0, i + 1)
+			if str_end.x == -1:
+				# no end to string
+				#print("no end to string")
 				break
-			flag = mname[flag_index]
-
-		if flag_index < 0:
-			continue
-		if is_editor_only and remote:
-			continue
-		if is_remote_only and not remote:
-			continue
-
-		var prefix_width := -flag_index - 1
-		if mname.right(prefix_width) != func_name:
+			var str_end_col: int = int(str_end.x) - 1
+			#print("strstart %s i %s" % [str_end_col, i])
+			is_in_string_until = str_end_col
 			continue
 		
-		# found matching command
-		#print(method)
+		if cur_paren_scope == 0 and cur_brace_scope == 0:
+			if c == "," or (c == " " and prev_c != " "):
+				# going to next arg
+				var cur_needed_arg: Dictionary
+				if cur_needed_arg_index < needed_args.size():
+					cur_needed_arg = needed_args[cur_needed_arg_index]
+				
+				#print(cur_needed_arg)
+				# check when arg needs to be a string literal
+				var quote_arg := (cur_needed_arg.get("type", -1) as int) == TYPE_STRING
+				#quote_arg = quote_arg and (cur_needed_arg.get("name", "") as String).begins_with("l_")
+				var cur_arg_text := arg_text.substr(cur_arg_start, i - cur_arg_start).strip_edges()
+				if quote_arg:
+					cur_arg_text = "\"%s\"" % cur_arg_text
+				args.push_back(cur_arg_text)
+				cur_arg_start = i + 1
+				cur_needed_arg_index += 1
+				continue
 
-		var args := []
-		var remaining_arg_text := rest_of_cmd.strip_edges()
-		var needed_args := method.args as Array
-		for arg: Dictionary in needed_args:
-			var cut_arg := remaining_arg_text
-			var narg := ""
-			
-			#var scope := 0
-			#scope += remaining_arg_text.countn('(')
-			#scope -= remaining_arg_text.countn(')')
+		if c == "(":
+			cur_paren_scope += 1
+		elif c == ")":
+			cur_paren_scope -= 1
+			if cur_paren_scope < 0:
+				# out of scope
+				break
+		elif c == "[":
+			cur_brace_scope += 1
+		elif c == "]":
+			cur_brace_scope -= 1
+			if cur_brace_scope < 0:
+				# out of scope
+				break
 
-			#if needed_args.size() >
-			if remaining_arg_text.begins_with("\""):
-				# todo handle escape?
-				var cut_arg_end := remaining_arg_text.find("\"")
-				# if cut_arg_end < 0: #unterminated, use rest of str
-				cut_arg = remaining_arg_text.substr(1, cut_arg_end)
-			# todo does not consider () scope
-			#elif remaining_arg_text.contains(","):
-			#	cut_arg = remaining_arg_text.get_slice(",",0)
-			#elif remaining_arg_text.contains(" "):
-			#	cut_arg = remaining_arg_text.get_slice(" ",0)
-			#print("'%s' - '%s'" % [remaining_arg_text, cut_arg])
+	if cur_arg_start < arg_text.length():
+		var cur_needed_arg: Dictionary
+		if cur_needed_arg_index < needed_args.size():
+			cur_needed_arg = needed_args[cur_needed_arg_index]
+		# check when arg needs to be a string literal
+		var quote_arg := (cur_needed_arg.get("type", -1) as int) == TYPE_STRING
+		# add last arg
+		var cur_arg_text := arg_text.substr(cur_arg_start).strip_edges()
+		if quote_arg:
+			cur_arg_text = "\"%s\"" % cur_arg_text
+		args.push_back(cur_arg_text)
 
-			narg = cut_arg
-			if arg.type == TYPE_STRING:
-				# quote it
-				narg = "\"%s\"" % narg
+	var joined_args := ", ".join(args)
+	updated_cmd_text = "cmds.%s(%s)" % [mname, joined_args]
+	if is_func_const:
+		const_cmd_check_portion = updated_cmd_text
+	else:
+		const_cmd_check_portion = joined_args
 
-			remaining_arg_text = remaining_arg_text.right(-cut_arg.length()).strip_edges()
-			args.push_back(narg)
-
-		var argtext := ", ".join(args)
-		var updated_cmd := "cmds.%s(%s)" % [mname, argtext]
-		var func_const_portion := updated_cmd
-		if not is_func_const:
-			func_const_portion = argtext
-		return [updated_cmd, awaitable, func_const_portion, remote]
-
-	return [cmd_text, awaitable, const_cmd_check_portion, remote]
+	return [updated_cmd_text, awaitable, const_cmd_check_portion, exec_on_remote]
 
 func _clear_editor_debugger() -> void:
 	editor_debugger = null
@@ -294,7 +335,7 @@ func _run_cmd(cmd_text: String) -> bool:
 		if handler.response_data.size() < 2:
 			outputerr("Remote invalid response %s" % handler.response_data)
 			return false
-		var remote_worked: bool = handler.response_data[1] 
+		var remote_worked: bool = handler.response_data[1]
 		return remote_worked
 	var worked := _run_expression(cmd_text)
 	if worked and await_result:
@@ -343,13 +384,13 @@ func _check_expression(cmd_text: String, check_exec: Array) -> String:
 	cmd_text = processed[0]
 	#var await_result : bool = processed[1]
 	var const_portion: String = processed[2]
-	var remote : bool = processed[3]
+	var exec_on_remote: bool = processed[3]
 
 	if cmd_text.is_empty():
 		check_exec[0] = false
 		return "[color=yellow]No command[/color]"
 
-	if remote:
+	if exec_on_remote:
 		var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
 		# this can change without us knowing, so dont err
 		if not handler.is_active():
@@ -515,62 +556,55 @@ func _on_symbol_hovered(_symbol: String, _line: int, _column: int) -> void:
 	#tooltip
 
 func _complete_request() -> void:
-	pass
 	# Expression has no built in completion, so its a pain
 	# gdscripts one isnt exposed either...
+	var completion_debug := false
 	
-	var cmd_line_text := _cmd_input.get_line(_cmd_input.get_caret_line())
-	
-	# using rfind is a mess, so many edge cases
-	var splits := cmd_line_text.split(";")
-	var cmd_line_caret_line := _cmd_input.get_caret_line()
-	var cmd_line_column := _cmd_input.get_caret_column()
-	var acc := 0
-	var cmd_text := ""
-	var cmd_column := 0 
-	for split in splits:
-		var last_acc := acc
-		acc += split.length()
-		acc += 1 # for splitter ;
-		if acc > cmd_line_column:
-			cmd_text = split
-			cmd_column = cmd_line_column - last_acc
+	var upreprocessed_cmds := _cmd_input.get_text_for_code_completion()
+	upreprocessed_cmds = upreprocessed_cmds.replace(";", "\n")
+	var unp_split := upreprocessed_cmds.split("\n")
+	var upreprocessed_cmd := ""
+	for unp_spliti in unp_split:
+		if char(0xFFFF) in unp_spliti:
+			upreprocessed_cmd = unp_spliti
 			break
+	upreprocessed_cmd = upreprocessed_cmd.strip_edges()
 	
-	var col_offset := -cmd_column + cmd_line_column
-
-	var cmd_before_text := cmd_text.left(cmd_column)
-	print("code completion on `%s` col %s, `%s`" % [cmd_text, cmd_column, cmd_before_text])
-	assert(cmd_column >= 0 and cmd_column <= cmd_text.length())
+	if upreprocessed_cmd.is_empty():
+		printerr("CmdRunner completion failed to extract cmd `%s`" % upreprocessed_cmds)
+		return
 	
-	var preprocessed := _preprocess_cmd(cmd_text)
+	var preprocessed := _preprocess_cmd(upreprocessed_cmd)
 	var preprocessed_full_text: String = preprocessed[0]
 	var preprocessed_cmd_text: String = preprocessed[2]
-	print("p: `%s` `%s`" % [preprocessed_cmd_text, preprocessed_full_text])
+	var is_remote_cmd: bool = preprocessed[3]
+	if completion_debug:
+		print("completion preprocessed: `%s` full: `%s`" % [preprocessed_cmd_text, preprocessed_full_text])
+	
+	var cmd_column := preprocessed_cmd_text.find(char(0xFFFF))
+	var cmd_text := preprocessed_cmd_text.remove_char(0xFFFF)
+	var cmd_before_text := cmd_text.left(cmd_column)
+	if completion_debug: print("code completion on `%s` col %s, `%s`" % [cmd_text, cmd_column, cmd_before_text])
+	if cmd_column < 0:
+		cmd_column = 0
+	assert(cmd_column >= 0 and cmd_column <= cmd_text.length())
+	
+	var parser_codeedit := CodeEdit.new()
+	parser_codeedit.queue_free()
+	parser_codeedit.delimiter_strings = _cmd_input.delimiter_strings
+	#parser_codeedit.delimiter_comments
+	parser_codeedit.text = cmd_before_text
 
 	
-	if _cmd_input.is_in_comment(cmd_line_caret_line, cmd_line_column) != -1:
-		printerr("CmdRunner expression in comment?")
+	if parser_codeedit.is_in_comment(0, cmd_column) != -1:
+		printerr("CmdRunner expression in comment")
 		return
-	if _cmd_input.is_in_string(cmd_line_caret_line, cmd_line_column) != -1:
-		#var str_start := _cmd_input.get_delimiter_start_position(cmd_line_caret_line, cmd_line_column)
-		print("CmdRunner expression in string")
+	if parser_codeedit.is_in_string(0, cmd_column) != -1:
+		#var str_start := parser_codeedit.get_delimiter_start_position(cmd_line_caret_line, cmd_line_column)
+		#print("CmdRunner expression in string")
+		# todo different options?
 		return
 
-	# assume it is well formed
-	## find current scope
-	#var scope_paren := 0
-	#var last_scope_paren_index := 0
-	##var scope_bracket := 0
-	##var last_scope_bracket_index := 0
-	#for i in range(cmd_text):
-	#	var c := cmd_text[i]
-	#	if c == '(':
-	#		scope_paren += 1
-	#		last_scope_paren_index = i
-	#	if c == ')':
-	#		scope_paren -= 1
-	
 	# find start of relevant section
 	var section_start := cmd_column
 	var cur_word_start := cmd_column
@@ -592,14 +626,14 @@ func _complete_request() -> void:
 		if is_in_string_until >= 0 and i >= is_in_string_until:
 			#print("skipping %s %s" %[i, c])
 			continue
-		if _cmd_input.has_string_delimiter(c):
-			#var d_in_str :=  _cmd_input.is_in_string(cmd_line_caret_line, i + col_offset - 1)
+		if parser_codeedit.has_string_delimiter(c):
+			#var d_in_str :=  parser_codeedit.is_in_string(cmd_line_caret_line, i + col_offset - 1)
 			#print("i %s ofs %s instr %s" % [i, i + col_offset - 1, d_in_str])
-			var str_start := _cmd_input.get_delimiter_start_position(cmd_line_caret_line, i + col_offset - 1)
+			var str_start := parser_codeedit.get_delimiter_start_position(0, i - 1)
 			if str_start.x == -1:
-				printerr("CmdRunner no end to string!")
+				printerr("CmdRunner no end to string! %s" % i)
 				break
-			var str_start_col : int = int(str_start.x) - 1 - col_offset
+			var str_start_col: int = int(str_start.x) - 1
 			#print("strstart %s i %s" % [str_start_col, i])
 			is_in_string_until = str_start_col
 			section_start = is_in_string_until
@@ -631,48 +665,75 @@ func _complete_request() -> void:
 	if parsable_section.ends_with("."):
 		parsable_section = parsable_section.left(-1)
 	
-	print("section `%s` (%s) word `%s` (%s) p `%s`" % [complete_section, section_start, cur_word, cur_word_start, parsable_section])
-	
+	if completion_debug: print("section `%s` (%s) word `%s` (%s) p `%s`" % [complete_section, section_start, cur_word, cur_word_start, parsable_section])
 	
 	var base_result: Variant = null
 	if not parsable_section.is_empty():
+		_update_inputs()
 		var expr := Expression.new()
 		var err := expr.parse(parsable_section, _cmd_input_names)
 		if err != OK:
-			#print("completion Parse error. cmd: `%s` error:%s %s" % [cmd_text, err, expr.get_error_text()])
-			return 
+			if completion_debug: print("completion Parse error. cmd: `%s` error:%s %s" % [cmd_text, err, expr.get_error_text()])
+			return
 		
 		var base_instance := get_base_instance()
 		# hopefully its actually const...
 		base_result = expr.execute(_cmd_inputs, base_instance, false, true)
 		if expr.has_execute_failed():
-			#print("completion Exec failed: %s" % expr.get_error_text())
+			if completion_debug: print("completion Exec failed: %s" % expr.get_error_text())
 			return
-		#print("completion success ", base_result)
+		if completion_debug: print("completion exec success `%s`" % base_result)
 	
 	var result_items := []
 	
-	if base_result != null:
-		if base_result is Object:
-			var base_obj := base_result as Object
-			var props: Array = base_obj.get_property_list()
-			for prop: Dictionary in props:
-				#var x : BitField[PropertyUsageFlags]
-				if not prop["usage"] & PROPERTY_USAGE_STORAGE:
-					continue
-				result_items.push_back({
-					"insert": prop["name"],
-					"kind": CodeEdit.CodeCompletionKind.KIND_CLASS
-				})
-		#if base_result is String:
-		#	var base_str := base_result as String
-		#	base_str.bigrams()
+	if base_result == null:
+		# all vars and cmds
+		var all_cmds := get_all_cmds(is_remote_cmd)
+		for cmd_mi: Dictionary in all_cmds:
+			result_items.push_back({
+				"insert": cmd_mi["cmd_name"],
+				"kind": CodeEdit.CodeCompletionKind.KIND_FUNCTION,
+				"cmd": true,
+				"location": CodeEdit.CodeCompletionLocation.LOCATION_OTHER_USER_CODE,
+			})
+		var all_vars := get_all_vars().keys()
+		for inp_name in _cmd_input_names:
+			var is_var := all_vars.has(inp_name)
+			result_items.push_back({
+				"insert": inp_name,
+				"kind": CodeEdit.CodeCompletionKind.KIND_VARIABLE if is_var else CodeEdit.CodeCompletionKind.KIND_CLASS,
+				"location": CodeEdit.CodeCompletionLocation.LOCATION_PARENT_MASK | 1,
+			})
+			
+		pass
+	elif base_result is Object:
+		var base_obj := base_result as Object
+		var props := base_obj.get_property_list()
+		for prop: Dictionary in props:
+			# todo not correct?
+			if not prop["usage"] & PROPERTY_USAGE_STORAGE:
+				continue
+			result_items.push_back({
+				"insert": prop["name"],
+				"kind": CodeEdit.CodeCompletionKind.KIND_MEMBER,
+				"location": CodeEdit.CodeCompletionLocation.LOCATION_LOCAL,
+			})
+		var methods := base_obj.get_method_list()
+		for method: Dictionary in methods:
+			#todo check return type and prioritize?
+			#if not method["usage"] & PROPERTY_USAGE_STORAGE:
+			#	continue
+			result_items.push_back({
+				"insert": method["name"],
+				"display_name": method["name"] + "()",
+				"kind": CodeEdit.CodeCompletionKind.KIND_FUNCTION,
+				"location": CodeEdit.CodeCompletionLocation.LOCATION_LOCAL,
+			})
+	#if base_result is String:
+		# get_argument_options() is not exposed!
+		#String().
 
-
-	#if cmd_text == "d":
-	#	result_items.push_back("a")
-	
-	print("items ", result_items)
+	if completion_debug: print("items ", result_items)
 	
 	if result_items.is_empty():
 		return
@@ -680,8 +741,52 @@ func _complete_request() -> void:
 	for result_item: Dictionary in result_items:
 		var ckind: CodeEdit.CodeCompletionKind = result_item["kind"]
 		var insert: String = result_item["insert"]
-		_cmd_input.add_code_completion_option(ckind, insert, insert)
+		var display_name: String = result_item.get("display_name", insert)
+		var location: CodeEdit.CodeCompletionLocation = result_item.get("location", CodeEdit.CodeCompletionLocation.LOCATION_OTHER)
+		var cmd: bool = result_item.get("cmd", false)
+		var icon := _get_completion_icon(ckind, display_name, cmd)
+		_cmd_input.add_code_completion_option(ckind, display_name, insert, Color.WHITE, icon, null, location)
 	_cmd_input.update_code_completion_options(false)
+
+# CodeTextEditor::_get_completion_icon
+func _get_completion_icon(kind: CodeEdit.CodeCompletionKind, display: String, cmd: bool) -> Texture2D:
+	var tex: Texture2D
+	if cmd:
+		#return _cmd_input.get_theme_icon("FadeDisabled" , "EditorIcons")
+		return _cmd_input.get_theme_icon("GuiTreeArrowRight", "EditorIcons")
+	match kind:
+		CodeEdit.CodeCompletionKind.KIND_CLASS:
+			var formatted_class_name := display # todo needed? .unquote();
+			if _cmd_input.has_theme_icon(formatted_class_name, "EditorIcons"):
+				tex = _cmd_input.get_theme_icon(formatted_class_name, "EditorIcons");
+			else:
+				# todo
+				#tex = EditorNode::get_singleton()->get_class_icon(formatted_class_name);
+				if tex == null:
+					tex = _cmd_input.get_theme_icon("Object", "EditorIcons");
+		CodeEdit.CodeCompletionKind.KIND_ENUM:
+			tex = _cmd_input.get_theme_icon("Enum", "EditorIcons");
+		CodeEdit.CodeCompletionKind.KIND_FILE_PATH:
+			tex = _cmd_input.get_theme_icon("File", "EditorIcons");
+		CodeEdit.CodeCompletionKind.KIND_NODE_PATH:
+			tex = _cmd_input.get_theme_icon("NodePath", "EditorIcons");
+		CodeEdit.CodeCompletionKind.KIND_VARIABLE:
+			tex = _cmd_input.get_theme_icon("LocalVariable", "EditorIcons");
+		CodeEdit.CodeCompletionKind.KIND_CONSTANT:
+			tex = _cmd_input.get_theme_icon("MemberConstant", "EditorIcons");
+		CodeEdit.CodeCompletionKind.KIND_MEMBER:
+			tex = _cmd_input.get_theme_icon("MemberProperty", "EditorIcons");
+		CodeEdit.CodeCompletionKind.KIND_SIGNAL:
+			tex = _cmd_input.get_theme_icon("MemberSignal", "EditorIcons");
+		CodeEdit.CodeCompletionKind.KIND_FUNCTION:
+			tex = _cmd_input.get_theme_icon("MemberMethod", "EditorIcons");
+		CodeEdit.CodeCompletionKind.KIND_KEYWORD:
+			tex = _cmd_input.get_theme_icon("Keyword", "EditorIcons");
+		CodeEdit.CodeCompletionKind.KIND_PLAIN_TEXT:
+			tex = _cmd_input.get_theme_icon("BoxMesh", "EditorIcons");
+		_:
+			tex = _cmd_input.get_theme_icon("String", "EditorIcons");
+	return tex
 
 func _on_cmd_code_edit_symbol_validate(_symbol: String) -> void:
 	_cmd_input.set_symbol_lookup_word_as_valid(true)
