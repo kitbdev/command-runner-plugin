@@ -456,7 +456,7 @@ func _open_in_new_inspector(obj: Object) -> void:
 	if obj is Node:
 		(obj as Node).renamed.connect(_set_name.bind(obj))
 
-## Reload plugin
+## Reload plugin. name is directory name
 func _cmde_reload(plugin_name := "") -> bool:
 	if plugin_name.is_empty():
 		# "commandrunner"

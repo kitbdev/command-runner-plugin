@@ -686,8 +686,17 @@ func _complete_request() -> void:
 	
 	var result_items := []
 	
+	const keywords: PackedStringArray = ["await", "remote"]
+
 	if base_result == null:
 		# all vars and cmds
+		for keyword_name in keywords:
+			result_items.push_back({
+				"insert": keyword_name,
+				"kind": CodeEdit.CodeCompletionKind.KIND_KEYWORD,
+				"location": CodeEdit.CodeCompletionLocation.LOCATION_OTHER_USER_CODE,
+			})
+			
 		var all_cmds := get_all_cmds(is_remote_cmd)
 		for cmd_mi: Dictionary in all_cmds:
 			result_items.push_back({
