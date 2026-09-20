@@ -26,3 +26,5 @@ func _exit_tree() -> void:
 	if debugger_handler:
 		remove_debugger_plugin(debugger_handler)
 		debugger_handler = null
+	
+	CmdRunnerEditorDebuggerHandler.destruct()

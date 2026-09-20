@@ -313,6 +313,42 @@ func _run_expression(cmd_text: String) -> bool:
 	_last_result = result
 	return true
 
+func _run_remote_cmd(cmd_text: String) -> bool:
+	var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
+	if not handler.is_active():
+		outputerr("Cannot send remote cmd, session not active")
+		return false
+	
+	# update remote inputs
+	var sel_obj := EditorInterface.get_inspector().get_edited_object()
+	if sel_obj != null and sel_obj.get_class() == "EditorDebuggerRemoteObjects":
+		#for p in sel_obj.get_property_list():
+			#print("%s:%s %s" % [p.name, sel_obj.get(p.name), p])
+		if "Node/path" not in sel_obj:
+			outputerr("Cannot get remote object path")
+			return false
+		var remote_sel_path: NodePath = sel_obj["Node/path"]
+		await handler.send_message_and_wait("set_selection", [remote_sel_path])
+		var remote_update_success: Error = handler.response_data[0]
+		if remote_update_success != OK:
+			outputerr("Remote update failed %s" % error_string(remote_update_success))
+			return false
+	
+	# run
+	
+	await handler.send_message_and_wait("run_cmd", [cmd_text])
+	var remote_success: Error = handler.response_data[0]
+	if remote_success != OK:
+		outputerr("Remote run failed %s" % error_string(remote_success))
+		return false
+	if verbose_mode:
+		output("Remote run success %s" % [handler.response_data])
+	if handler.response_data.size() < 2:
+		outputerr("Remote run invalid response %s" % handler.response_data)
+		return false
+	var remote_worked: bool = handler.response_data[1]
+	return remote_worked
+
 func _run_cmd(cmd_text: String) -> bool:
 	var processed := _preprocess_cmd(cmd_text)
 	cmd_text = processed[0]
@@ -321,22 +357,7 @@ func _run_cmd(cmd_text: String) -> bool:
 	var await_result: bool = processed[1]
 	var remote: bool = processed[3]
 	if remote:
-		var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
-		if not handler.is_active():
-			outputerr("Cannot send remote cmd, session not active")
-			return false
-		await handler.send_message_and_wait("run_cmd", [cmd_text])
-		var remote_success: Error = handler.response_data[0]
-		if remote_success != OK:
-			outputerr("Remote failed %s" % error_string(remote_success))
-			return false
-		if verbose_mode:
-			output("Remote success %s" % [handler.response_data])
-		if handler.response_data.size() < 2:
-			outputerr("Remote invalid response %s" % handler.response_data)
-			return false
-		var remote_worked: bool = handler.response_data[1]
-		return remote_worked
+		return await _run_remote_cmd(cmd_text)
 	var worked := _run_expression(cmd_text)
 	if worked and await_result:
 		await _last_result
@@ -390,22 +411,37 @@ func _check_expression(cmd_text: String, check_exec: Array) -> String:
 		check_exec[0] = false
 		return "[color=yellow]No command[/color]"
 
+	var remote_prefix := ""
+	var check_input_names := _cmd_input_names
 	if exec_on_remote:
-		var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
-		# this can change without us knowing, so dont err
-		if not handler.is_active():
-			return "[color=red]No active remote session[/color] `%s`" % _bbescape(cmd_text)
+		remote_prefix = "Remote "
+		#var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
+		#if not handler.is_active():
 		return "Remote cmd `%s`" % _bbescape(cmd_text)
+		
+		#await handler.send_message_and_wait("get_inputs", [cmd_text])
+		#var remote_success: Error = handler.response_data[0]
+		#if remote_success != OK:
+			#outputerr("Remote get inputs failed %s" % error_string(remote_success))
+			#return "Remote cmd `%s`" % _bbescape(cmd_text)
+		#if handler.response_data[1] is not Array:
+			#outputerr("Remote get inputs data error")
+			#return "Remote cmd `%s`" % _bbescape(cmd_text)
+		#var remote_cmd_input_names: Array = handler.response_data[1]
+		#print("got inputs %s "% remote_cmd_input_names)
+		#check_input_names = remote_cmd_input_names
+		# todo cant use .execute anyway, do all parsing on remote and just return results instead.
+		# also for code completion
 
 	if const_portion.is_empty():
 		check_exec[0] = false
-		return "[color=gray][i]Non-const, skipping exec checks[/i][/color] `%s`" % _bbescape(cmd_text)
+		return remote_prefix + "[color=gray][i]Non-const, skipping exec checks[/i][/color] `%s`" % _bbescape(cmd_text)
 	
 	var expr := Expression.new()
-	var err := expr.parse(const_portion, _cmd_input_names)
+	var err := expr.parse(const_portion, check_input_names)
 	if err != OK:
 		check_exec[0] = false
-		return "[color=red]Parse Error:[/color] %s; %s `%s`" % [error_string(err), _bbescape(expr.get_error_text()), _bbescape(const_portion)]
+		return remote_prefix + "[color=red]Parse Error:[/color] %s; %s `%s`" % [error_string(err), _bbescape(expr.get_error_text()), _bbescape(const_portion)]
 	
 	if not check_exec[0]:
 		# warning was already printed
@@ -430,10 +466,10 @@ func _check_expression(cmd_text: String, check_exec: Array) -> String:
 						_update_warning_label.call_deferred()
 					break
 
-			return "[color=red]Error:[/color] %s `%s`" % [_bbescape(expr.get_error_text()), _bbescape(const_portion)]
+			return remote_prefix + "[color=red]Error:[/color] %s `%s`" % [_bbescape(expr.get_error_text()), _bbescape(const_portion)]
 
 	#return ""
-	return "[color=darkgreen]%s[/color]" % _bbescape(cmd_text)
+	return remote_prefix + "[color=darkgreen]%s[/color]" % _bbescape(cmd_text)
 
 func _update_warning_label() -> void:
 	var cmd_txt := _cmd_input.text

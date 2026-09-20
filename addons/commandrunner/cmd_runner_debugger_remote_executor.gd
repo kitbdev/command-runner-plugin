@@ -17,7 +17,7 @@ func _ready() -> void:
 	_custom_commands.cmd_runner = self
 
 func _message_capture(message: String, data: Array) -> bool:
-	print("CmdRunner debugger got message %s %s" % [message, data])
+	#if verbose_mode: print("CmdRunner debugger got message %s %s" % [message, data])
 	if message == "run_cmd":
 		if data.size() != 1 or data[0] is not String:
 			send_message("cmd_finished", [ERR_INVALID_DATA])
@@ -29,16 +29,23 @@ func _message_capture(message: String, data: Array) -> bool:
 		send_message("cmd_finished", [OK, worked])
 		return true
 	if message == "set_selection":
-		if data.size() != 1 or data[0] is not Object:
+		if data.size() != 1 or data[0] is not NodePath:
 			send_message("cmd_finished", [ERR_INVALID_DATA])
 			return true
-		selection = data[0] as Object
+		var path := data[0] as NodePath
+		selection = get_node(path)
+		send_message("cmd_finished", [OK])
 		return true
-	if message == "set_base_node":
-		if data.size() != 1 or data[0] is not Object:
-			send_message("cmd_finished", [ERR_INVALID_DATA])
-			return true
-		_base_instance_node = data[0] as Object
+	#if message == "set_base_node":
+		#if data.size() != 1 or data[0] is not NodePath:
+			#send_message("cmd_finished", [ERR_INVALID_DATA])
+			#return true
+		#var path := data[0] as NodePath
+		#_base_instance_node = get_node(path)
+		#send_message("cmd_finished", [OK])
+		#return true
+	if message == "get_inputs":
+		send_message("cmd_finished", [OK, _cmd_input_names])
 		return true
 	return false
 
@@ -46,10 +53,10 @@ func send_message(message: String, data: Array) -> void:
 	EngineDebugger.send_message(message_prefix + ":" + message, data)
 
 func output(output_text: String, is_escaped: bool = false) -> void:
-	send_message("output", ["remote: " + output_text, is_escaped])
+	send_message("output", [output_text, is_escaped])
 
 func outputerr(output_text: String) -> void:
-	send_message("outputerr", ["remote: " + output_text])
+	send_message("outputerr", [output_text])
 
 func _update_inputs() -> void:
 	_base_cmd_input_names = ["sel", "allvars", "cmd_runner", "cmds"]
@@ -70,7 +77,7 @@ func _run_expression(cmd_text: String) -> bool:
 	var base_instance := get_base_instance()
 	if verbose_mode:
 		output("Running cmd: `%s` on `%s`" % [cmd_text, CmdRunnerUtil.nice_print_obj(base_instance)])
-	var result: Variant = expr.execute(_cmd_inputs, base_instance, true, false)
+	var result: Variant = expr.execute(_cmd_inputs, base_instance, false, false)
 	if expr.has_execute_failed():
 		outputerr("Exec failed: %s" % expr.get_error_text())
 		return false

@@ -105,6 +105,7 @@ func _cmd_new(var_name: String, opt_class_name := "") -> bool:
 		new_class_name = opt_class_name
 
 	var new_class: Variant = null
+	# todo this can error sometimes? (may be fixed in 4.8)
 	if ClassDB.can_instantiate(new_class_name):
 		# make var
 		new_class = ClassDB.instantiate(new_class_name)
@@ -303,16 +304,22 @@ func _deserialize(target: Object) -> Array:
 
 ## Open in main inspector
 func _cmdr_inspectmain(target: Object = null) -> bool:
-	print("inspecting ", CmdRunnerUtil.nice_print_obj(target))
+	if target == null:
+		# use remote_nothing_selected?
+		cmd_runner.outputerr("No target Object to inspect!")
+		return false
+	#print("inspecting ", CmdRunnerUtil.nice_print_obj(target))
 	#EditorInterface.inspect_object(target)
 	# cmd_runner.send_message("")
-	var inspect_msg := "scene:remote_objects_selected"
+	#var inspect_msg := "scene:inspect_objects"
+	var inspect_msg := "remote_objects_selected"
 	var data := [
 		# remote object ids
 		_deserialize(target),
 		# update selection?
 		#true
 	]
+	#print("`%s` %s" % [inspect_msg, data])
 		
 	EngineDebugger.send_message(inspect_msg, data)
 	return true
