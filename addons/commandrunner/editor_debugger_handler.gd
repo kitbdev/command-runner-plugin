@@ -32,7 +32,7 @@ func _has_capture(capture: String) -> bool:
 
 func _capture(message: String, data: Array, session_id: int) -> bool:
 	if cmd_runner.verbose_mode:
-		cmd_runner.output("CmdRunner handler got message %s %s session %s" % [message, data, session_id])
+		cmd_runner.output(("CmdRunner handler session %s got message %s %s " % [session_id, message, data]).left(1000))
 	message = message.trim_prefix(message_prefix + ":")
 	if message == "output":
 		if data.size() != 2:

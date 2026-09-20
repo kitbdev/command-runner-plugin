@@ -119,7 +119,7 @@ func _preprocess_cmd(cmd_text: String) -> Array:
 	if cmd_text.begins_with("remote ") or cmd_text.begins_with("r "):
 		cmd_text = cmd_text.right(-cmd_text.get_slice(" ", 0).length() - 1)
 		exec_on_remote = true
-		const_cmd_check_portion = ""
+		const_cmd_check_portion = cmd_text
 		cmd_text = cmd_text.strip_edges()
 	
 	var updated_cmd_text := cmd_text
@@ -285,13 +285,9 @@ func _update_inputs() -> void:
 
 	_update_var_inputs()
 
-func _run_remote_cmd(cmd_text: String) -> bool:
+func _update_remote_inputs() -> bool:
 	var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
-	if not handler.is_active():
-		outputerr("Cannot send remote cmd, session not active")
-		return false
-	
-	# update remote inputs
+
 	var sel_obj := EditorInterface.get_inspector().get_edited_object()
 	if sel_obj != null and sel_obj.get_class() == "EditorDebuggerRemoteObjects":
 		#for p in sel_obj.get_property_list():
@@ -305,9 +301,19 @@ func _run_remote_cmd(cmd_text: String) -> bool:
 		if remote_update_success != OK:
 			outputerr("Remote update failed %s" % error_string(remote_update_success))
 			return false
+	return true
 	
-	# run
+
+func _run_remote_cmd(cmd_text: String) -> bool:
+	var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
+	if not handler.is_active():
+		outputerr("Cannot send remote cmd, session not active")
+		return false
 	
+	if not await _update_remote_inputs():
+		return false
+	
+	# run 
 	await handler.send_message_and_wait("run_cmd", [cmd_text])
 	var remote_success: Error = handler.response_data[0]
 	if remote_success != OK:
@@ -566,8 +572,7 @@ func _on_symbol_hovered(_symbol: String, _line: int, _column: int) -> void:
 func _complete_request() -> void:
 	# Expression has no built in completion, so its a pain
 	# gdscripts one isnt exposed either...
-	var completion_debug := false
-	
+	var completion_debug := has_var("completion_debug")
 	var upreprocessed_cmds := _cmd_input.get_text_for_code_completion()
 	upreprocessed_cmds = upreprocessed_cmds.replace(";", "\n")
 	var unp_split := upreprocessed_cmds.split("\n")
@@ -647,7 +652,7 @@ func _complete_request() -> void:
 			section_start = is_in_string_until
 			continue
 
-		if c == ",":
+		if cur_paren_scope == 0 and cur_brace_scope == 0 and c == ",":
 			# going to a prev param
 			break
 		elif c == ")":
@@ -680,7 +685,9 @@ func _complete_request() -> void:
 	if is_remote_cmd:
 		var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
 		if handler.is_active():
-			await handler.send_message_and_wait("get_completion", [parsable_section])
+			if completion_debug: print("remote completion")
+			await _update_remote_inputs()
+			await handler.send_message_and_wait("get_completion", [parsable_section], 0, 0.5)
 			var remote_update_success: Error = handler.response_data[0]
 			if remote_update_success != OK:
 				outputerr("Remote completion failed %s" % error_string(remote_update_success))
@@ -690,10 +697,11 @@ func _complete_request() -> void:
 				return
 			result_items = handler.response_data[1]
 
-	if result_items.is_empty():
-		result_items = get_completion_result_items(parsable_section)
+	#if result_items.is_empty():
+	else:
+		result_items = get_completion_result_items(parsable_section, false)
 
-	if completion_debug: print("items ", result_items)
+	if completion_debug: print(("items %s %s" % [result_items.size(), result_items]).left(1000))
 	
 	if result_items.is_empty():
 		return

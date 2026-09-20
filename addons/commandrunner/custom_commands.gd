@@ -145,7 +145,7 @@ func _cmd_new(var_name: String, opt_class_name := "") -> bool:
 	return true
 
 ## Create a new variable for later use `var name,value`
-func _cmd_var(var_name: String, value: Variant) -> bool:
+func _cmd_var(var_name: String, value: Variant = null) -> bool:
 	var prefix_action := "Updated" if cmd_runner.has_var(var_name) else "Saved"
 	if cmd_runner.add_var(var_name, value):
 		cmd_runner.output("%s var `%s` to value `%s`" % [prefix_action, var_name, value], true)

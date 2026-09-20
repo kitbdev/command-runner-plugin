@@ -217,10 +217,11 @@ func get_all_cmds(remote_only: bool) -> Array[Dictionary]:
 		cmds.push_back(method)
 	return cmds
 
-func get_completion_result_items(parsable_section: String) -> Array:
-	var completion_debug := false
+func get_completion_result_items(parsable_section: String, is_remote: bool) -> Array:
+	var completion_debug := has_var("completion_debug")
 	var result_items := []
 	var base_result: Variant = null
+	if completion_debug: print("getting results for `%s`" % parsable_section)
 	if not parsable_section.is_empty():
 		_update_inputs()
 		var expr := Expression.new()
@@ -249,7 +250,7 @@ func get_completion_result_items(parsable_section: String) -> Array:
 				"location": CodeEdit.CodeCompletionLocation.LOCATION_OTHER_USER_CODE,
 			})
 			
-		var all_cmds := get_all_cmds(false) # todo is_remote_cmd
+		var all_cmds := get_all_cmds(is_remote)
 		for cmd_mi: Dictionary in all_cmds:
 			result_items.push_back({
 				"insert": cmd_mi["cmd_name"],

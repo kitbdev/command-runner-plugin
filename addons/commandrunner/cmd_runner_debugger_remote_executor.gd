@@ -17,7 +17,8 @@ func _ready() -> void:
 	_custom_commands.cmd_runner = self
 
 func _message_capture(message: String, data: Array) -> bool:
-	if verbose_mode: print("CmdRunner debugger got message %s %s" % [message, data])
+	# this can freeze the editor if data is too long
+	if verbose_mode: print(("CmdRunner debugger got message `%s` %s" % [message, data]).left(1000))
 	if message == "run_cmd":
 		if data.size() != 1 or data[0] is not String:
 			send_message("cmd_finished", [ERR_INVALID_DATA])
@@ -53,7 +54,7 @@ func _message_capture(message: String, data: Array) -> bool:
 			return true
 
 		var cmd_txt := data[0] as String
-		var result := get_completion_result_items(cmd_txt)
+		var result := get_completion_result_items(cmd_txt, true)
 		send_message("cmd_finished", [OK, result])
 		return true
 	return false
