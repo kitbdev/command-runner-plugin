@@ -20,13 +20,16 @@ func _message_capture(message: String, data: Array) -> bool:
 	# this can freeze the editor if data is too long
 	if verbose_mode: print(("CmdRunner debugger got message `%s` %s" % [message, data]).left(1000))
 	if message == "run_cmd":
-		if data.size() != 1 or data[0] is not String:
+		if data.size() != 2 or data[0] is not String or data[1] is not bool:
 			send_message("cmd_finished", [ERR_INVALID_DATA])
 			return true
 
 		_update_inputs()
 		var cmd_txt := data[0] as String
+		var await_result := data[1] as bool
 		var worked := _run_expression(cmd_txt)
+		if worked and await_result:
+			await _last_result
 		send_message("cmd_finished", [OK, worked])
 		return true
 	if message == "set_selection":

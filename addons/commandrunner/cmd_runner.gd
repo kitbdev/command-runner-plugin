@@ -110,16 +110,17 @@ func _preprocess_cmd(cmd_text: String) -> Array:
 	var const_cmd_check_portion := cmd_text
 	var awaitable := false
 	var exec_on_remote := false
-	if cmd_text.begins_with("await "):
-		cmd_text = cmd_text.right(-6)
-		awaitable = true
-		const_cmd_check_portion = ""
-		cmd_text = cmd_text.strip_edges()
 	
 	if cmd_text.begins_with("remote ") or cmd_text.begins_with("r "):
 		cmd_text = cmd_text.right(-cmd_text.get_slice(" ", 0).length() - 1)
 		exec_on_remote = true
 		const_cmd_check_portion = cmd_text
+		cmd_text = cmd_text.strip_edges()
+
+	if cmd_text.begins_with("await "):
+		cmd_text = cmd_text.right(-6)
+		awaitable = true
+		const_cmd_check_portion = ""
 		cmd_text = cmd_text.strip_edges()
 	
 	var updated_cmd_text := cmd_text
@@ -304,7 +305,7 @@ func _update_remote_inputs() -> bool:
 	return true
 	
 
-func _run_remote_cmd(cmd_text: String) -> bool:
+func _run_remote_cmd(cmd_text: String, await_result: bool) -> bool:
 	var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
 	if not handler.is_active():
 		outputerr("Cannot send remote cmd, session not active")
@@ -314,7 +315,7 @@ func _run_remote_cmd(cmd_text: String) -> bool:
 		return false
 	
 	# run 
-	await handler.send_message_and_wait("run_cmd", [cmd_text])
+	await handler.send_message_and_wait("run_cmd", [cmd_text, await_result])
 	var remote_success: Error = handler.response_data[0]
 	if remote_success != OK:
 		outputerr("Remote run failed %s" % error_string(remote_success))
@@ -335,7 +336,7 @@ func _run_cmd(cmd_text: String) -> bool:
 	var await_result: bool = processed[1]
 	var remote: bool = processed[3]
 	if remote:
-		return await _run_remote_cmd(cmd_text)
+		return await _run_remote_cmd(cmd_text, await_result)
 	var worked := _run_expression(cmd_text)
 	if worked and await_result:
 		await _last_result
