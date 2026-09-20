@@ -11,6 +11,8 @@ static func get_singleton() -> CmdRunnerEditorDebuggerHandler:
 
 static func destruct() -> void:
 	if _singleton:
+		# not working?
+		_singleton.cleanup()
 		# refcounted, so it should free itself
 		_singleton = null
 
@@ -18,7 +20,7 @@ const message_prefix := "command_runner"
 
 var cmd_runner: CommandRunner
 
-var is_setup := []
+var is_setup: PackedInt32Array = []
 
 signal response_received
 var response_data: Array
@@ -80,6 +82,27 @@ func _setup(session_id: int) -> void:
 func _session_ended(session_id: int) -> void:
 	#print("session %s ended" % session_id)
 	is_setup.erase(session_id)
+
+func cleanup() -> void:
+	var ids := is_setup.duplicate()
+	for id: int in ids:
+		_cleanup_for_session(id)
+
+func _cleanup_for_session(session_id: int) -> void:
+	var session := get_session(session_id)
+	if session == null:
+		# not sure why this happens
+		is_setup.erase(session_id)
+		return
+	if session.stopped.is_connected(_session_ended):
+		session.stopped.disconnect(_session_ended.bind(session_id))
+	_session_ended(session_id)
+
+	var remove_node_msg := "scene:live_remove_node"
+	# path (NodePath)
+	# don't know full path, but this seems to work
+	var data := [^"CmdRunnerDebuggerExecutor"]
+	session.send_message(remove_node_msg, data)
 
 func is_active(session_id: int = 0) -> bool:
 	return get_session(session_id).is_active()

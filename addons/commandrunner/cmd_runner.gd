@@ -26,8 +26,6 @@ var _max_hist_size := 100
 
 var _save_path := ".godot/editor/cmd_runner.cfg"
 
-var _last_result: Variant = null
-
 func _ready() -> void:
 	if is_part_of_edited_scene():
 		return
@@ -286,32 +284,6 @@ func _update_inputs() -> void:
 	_cmd_input_names = _base_cmd_input_names.duplicate()
 
 	_update_var_inputs()
-
-func _run_expression(cmd_text: String) -> bool:
-	#if not _base_instance_node:
-		# Not needed, no selection is fine
-		#outputerr("No node selected. cmd: `%s`" % [cmd_text])
-		#return false
-	var expr := Expression.new()
-	var err := expr.parse(cmd_text, _cmd_input_names)
-	if err != OK:
-		outputerr("Parse error. cmd: `%s` error:%s %s" % [cmd_text, err, expr.get_error_text()])
-		return false
-
-	var base_instance := get_base_instance()
-	if verbose_mode:
-		output("Running cmd: `%s` on `%s`" % [cmd_text, CmdRunnerUtil.nice_print_obj(base_instance)])
-	var result: Variant = expr.execute(_cmd_inputs, base_instance, true, false)
-	if expr.has_execute_failed():
-		outputerr("Exec failed: %s" % expr.get_error_text())
-		return false
-
-	if verbose_mode:
-		output("cmd Result: `%s`" % [result])
-	else:
-		output("cmd %s `%s` = `%s`" % [CmdRunnerUtil.nice_print_obj(base_instance, false), cmd_text, result])
-	_last_result = result
-	return true
 
 func _run_remote_cmd(cmd_text: String) -> bool:
 	var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
@@ -703,80 +675,23 @@ func _complete_request() -> void:
 	
 	if completion_debug: print("section `%s` (%s) word `%s` (%s) p `%s`" % [complete_section, section_start, cur_word, cur_word_start, parsable_section])
 	
-	var base_result: Variant = null
-	if not parsable_section.is_empty():
-		_update_inputs()
-		var expr := Expression.new()
-		var err := expr.parse(parsable_section, _cmd_input_names)
-		if err != OK:
-			if completion_debug: print("completion Parse error. cmd: `%s` error:%s %s" % [cmd_text, err, expr.get_error_text()])
-			return
-		
-		var base_instance := get_base_instance()
-		# hopefully its actually const...
-		base_result = expr.execute(_cmd_inputs, base_instance, false, true)
-		if expr.has_execute_failed():
-			if completion_debug: print("completion Exec failed: %s" % expr.get_error_text())
-			return
-		if completion_debug: print("completion exec success `%s`" % base_result)
-	
 	var result_items := []
 	
-	const keywords: PackedStringArray = ["await", "remote"]
+	if is_remote_cmd:
+		var handler := CmdRunnerEditorDebuggerHandler.get_singleton()
+		if handler.is_active():
+			await handler.send_message_and_wait("get_completion", [parsable_section])
+			var remote_update_success: Error = handler.response_data[0]
+			if remote_update_success != OK:
+				outputerr("Remote completion failed %s" % error_string(remote_update_success))
+				return
+			if handler.response_data[1] is not Array:
+				outputerr("Remote completion data error")
+				return
+			result_items = handler.response_data[1]
 
-	if base_result == null:
-		# all vars and cmds
-		for keyword_name in keywords:
-			result_items.push_back({
-				"insert": keyword_name,
-				"kind": CodeEdit.CodeCompletionKind.KIND_KEYWORD,
-				"location": CodeEdit.CodeCompletionLocation.LOCATION_OTHER_USER_CODE,
-			})
-			
-		var all_cmds := get_all_cmds(is_remote_cmd)
-		for cmd_mi: Dictionary in all_cmds:
-			result_items.push_back({
-				"insert": cmd_mi["cmd_name"],
-				"kind": CodeEdit.CodeCompletionKind.KIND_FUNCTION,
-				"cmd": true,
-				"location": CodeEdit.CodeCompletionLocation.LOCATION_OTHER_USER_CODE,
-			})
-		var all_vars := get_all_vars().keys()
-		for inp_name in _cmd_input_names:
-			var is_var := all_vars.has(inp_name)
-			result_items.push_back({
-				"insert": inp_name,
-				"kind": CodeEdit.CodeCompletionKind.KIND_VARIABLE if is_var else CodeEdit.CodeCompletionKind.KIND_CLASS,
-				"location": CodeEdit.CodeCompletionLocation.LOCATION_PARENT_MASK | 1,
-			})
-			
-		pass
-	elif base_result is Object:
-		var base_obj := base_result as Object
-		var props := base_obj.get_property_list()
-		for prop: Dictionary in props:
-			# todo not correct?
-			if not prop["usage"] & PROPERTY_USAGE_STORAGE:
-				continue
-			result_items.push_back({
-				"insert": prop["name"],
-				"kind": CodeEdit.CodeCompletionKind.KIND_MEMBER,
-				"location": CodeEdit.CodeCompletionLocation.LOCATION_LOCAL,
-			})
-		var methods := base_obj.get_method_list()
-		for method: Dictionary in methods:
-			#todo check return type and prioritize?
-			#if not method["usage"] & PROPERTY_USAGE_STORAGE:
-			#	continue
-			result_items.push_back({
-				"insert": method["name"],
-				"display_name": method["name"] + "()",
-				"kind": CodeEdit.CodeCompletionKind.KIND_FUNCTION,
-				"location": CodeEdit.CodeCompletionLocation.LOCATION_LOCAL,
-			})
-	#if base_result is String:
-		# get_argument_options() is not exposed!
-		#String().
+	if result_items.is_empty():
+		result_items = get_completion_result_items(parsable_section)
 
 	if completion_debug: print("items ", result_items)
 	

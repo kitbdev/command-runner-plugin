@@ -19,6 +19,8 @@ var _base_instance_override: Object = null
 
 var _custom_commands: CommandRunnerCustomCommands = null
 
+var _last_result: Variant = null
+
 @abstract
 func output(output_text: String, is_escaped: bool = false) -> void
 
@@ -138,6 +140,31 @@ func _auto_add_class(cmd_msg: String) -> bool:
 static func is_symbol(p_char: String) -> bool:
 	return p_char != '_' && ((p_char >= '!' && p_char <= '/') || (p_char >= ':' && p_char <= '@') || (p_char >= '[' && p_char <= '`') || (p_char >= '{' && p_char <= '~') || p_char == '\t' || p_char == ' ')
 
+func _run_expression(cmd_text: String) -> bool:
+	#if not _base_instance_node:
+		# Not needed, no selection is fine
+		#outputerr("No node selected. cmd: `%s`" % [cmd_text])
+		#return false
+	var expr := Expression.new()
+	var err := expr.parse(cmd_text, _cmd_input_names)
+	if err != OK:
+		outputerr("Parse error. cmd: `%s` error:%s %s" % [cmd_text, err, expr.get_error_text()])
+		return false
+
+	var base_instance := get_base_instance()
+	if verbose_mode:
+		output("Running cmd: `%s` on `%s`" % [cmd_text, CmdRunnerUtil.nice_print_obj(base_instance)])
+	var result: Variant = expr.execute(_cmd_inputs, base_instance, true, false)
+	if expr.has_execute_failed():
+		outputerr("Exec failed: %s" % expr.get_error_text())
+		return false
+
+	if verbose_mode:
+		output("cmd Result: `%s`" % [result])
+	else:
+		output("cmd %s `%s` = `%s`" % [CmdRunnerUtil.nice_print_obj(base_instance, false), cmd_text, result])
+	_last_result = result
+	return true
 
 #func get_matching_cmd(func_name: String, remote_only: bool) -> Dictionary
 
@@ -189,3 +216,81 @@ func get_all_cmds(remote_only: bool) -> Array[Dictionary]:
 		method["const"] = is_func_const
 		cmds.push_back(method)
 	return cmds
+
+func get_completion_result_items(parsable_section: String) -> Array:
+	var completion_debug := false
+	var result_items := []
+	var base_result: Variant = null
+	if not parsable_section.is_empty():
+		_update_inputs()
+		var expr := Expression.new()
+		var err := expr.parse(parsable_section, _cmd_input_names)
+		if err != OK:
+			if completion_debug: print("completion Parse error. cmd: `%s` error:%s %s" % [parsable_section, err, expr.get_error_text()])
+			return result_items
+		
+		var base_instance := get_base_instance()
+		# hopefully its actually const...
+		base_result = expr.execute(_cmd_inputs, base_instance, false, true)
+		if expr.has_execute_failed():
+			if completion_debug: print("completion Exec failed: %s" % expr.get_error_text())
+			return result_items
+		if completion_debug: print("completion exec success `%s`" % base_result)
+	
+	
+	const keywords: PackedStringArray = ["await", "remote"]
+
+	if base_result == null:
+		# all vars and cmds
+		for keyword_name in keywords:
+			result_items.push_back({
+				"insert": keyword_name,
+				"kind": CodeEdit.CodeCompletionKind.KIND_KEYWORD,
+				"location": CodeEdit.CodeCompletionLocation.LOCATION_OTHER_USER_CODE,
+			})
+			
+		var all_cmds := get_all_cmds(false) # todo is_remote_cmd
+		for cmd_mi: Dictionary in all_cmds:
+			result_items.push_back({
+				"insert": cmd_mi["cmd_name"],
+				"kind": CodeEdit.CodeCompletionKind.KIND_FUNCTION,
+				"cmd": true,
+				"location": CodeEdit.CodeCompletionLocation.LOCATION_OTHER_USER_CODE,
+			})
+		var all_vars := get_all_vars().keys()
+		for inp_name in _cmd_input_names:
+			var is_var := all_vars.has(inp_name)
+			result_items.push_back({
+				"insert": inp_name,
+				"kind": CodeEdit.CodeCompletionKind.KIND_VARIABLE if is_var else CodeEdit.CodeCompletionKind.KIND_CLASS,
+				"location": CodeEdit.CodeCompletionLocation.LOCATION_PARENT_MASK | 1,
+			})
+			
+		pass
+	elif base_result is Object:
+		var base_obj := base_result as Object
+		var props := base_obj.get_property_list()
+		for prop: Dictionary in props:
+			# todo not correct?
+			if not prop["usage"] & PROPERTY_USAGE_STORAGE:
+				continue
+			result_items.push_back({
+				"insert": prop["name"],
+				"kind": CodeEdit.CodeCompletionKind.KIND_MEMBER,
+				"location": CodeEdit.CodeCompletionLocation.LOCATION_LOCAL,
+			})
+		var methods := base_obj.get_method_list()
+		for method: Dictionary in methods:
+			#todo check return type and prioritize?
+			#if not method["usage"] & PROPERTY_USAGE_STORAGE:
+			#	continue
+			result_items.push_back({
+				"insert": method["name"],
+				"display_name": method["name"] + "()",
+				"kind": CodeEdit.CodeCompletionKind.KIND_FUNCTION,
+				"location": CodeEdit.CodeCompletionLocation.LOCATION_LOCAL,
+			})
+	#if base_result is String:
+		# get_argument_options() is not exposed!
+		#String().
+	return result_items

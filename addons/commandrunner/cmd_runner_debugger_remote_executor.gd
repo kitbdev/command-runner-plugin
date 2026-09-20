@@ -17,7 +17,7 @@ func _ready() -> void:
 	_custom_commands.cmd_runner = self
 
 func _message_capture(message: String, data: Array) -> bool:
-	#if verbose_mode: print("CmdRunner debugger got message %s %s" % [message, data])
+	if verbose_mode: print("CmdRunner debugger got message %s %s" % [message, data])
 	if message == "run_cmd":
 		if data.size() != 1 or data[0] is not String:
 			send_message("cmd_finished", [ERR_INVALID_DATA])
@@ -44,8 +44,17 @@ func _message_capture(message: String, data: Array) -> bool:
 		#_base_instance_node = get_node(path)
 		#send_message("cmd_finished", [OK])
 		#return true
-	if message == "get_inputs":
-		send_message("cmd_finished", [OK, _cmd_input_names])
+	#if message == "get_inputs":
+		#send_message("cmd_finished", [OK, _cmd_input_names])
+		#return true
+	if message == "get_completion":
+		if data.size() != 1 or data[0] is not String:
+			send_message("cmd_finished", [ERR_INVALID_DATA])
+			return true
+
+		var cmd_txt := data[0] as String
+		var result := get_completion_result_items(cmd_txt)
+		send_message("cmd_finished", [OK, result])
 		return true
 	return false
 
@@ -66,25 +75,3 @@ func _update_inputs() -> void:
 	_base_instance_node = get_tree().root
 
 	_update_var_inputs()
-
-func _run_expression(cmd_text: String) -> bool:
-	var expr := Expression.new()
-	var err := expr.parse(cmd_text, _cmd_input_names)
-	if err != OK:
-		outputerr("Parse error. cmd: `%s` error:%s %s" % [cmd_text, err, expr.get_error_text()])
-		return false
-
-	var base_instance := get_base_instance()
-	if verbose_mode:
-		output("Running cmd: `%s` on `%s`" % [cmd_text, CmdRunnerUtil.nice_print_obj(base_instance)])
-	var result: Variant = expr.execute(_cmd_inputs, base_instance, false, false)
-	if expr.has_execute_failed():
-		outputerr("Exec failed: %s" % expr.get_error_text())
-		return false
-
-	if verbose_mode:
-		output("cmd Result: `%s`" % [result])
-	else:
-		output("cmd %s `%s` = `%s`" % [CmdRunnerUtil.nice_print_obj(base_instance, false), cmd_text, result])
-	#_last_result = result
-	return true

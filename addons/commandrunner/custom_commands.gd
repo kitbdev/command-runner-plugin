@@ -491,3 +491,7 @@ func _cmd_sec(duration := 1.0) -> bool:
 func _cmd_frame() -> bool:
 	await cmd_runner.get_tree().process_frame
 	return true
+
+func _cmde_remote_cleanup() -> bool:
+	CmdRunnerEditorDebuggerHandler.get_singleton().cleanup()
+	return true
