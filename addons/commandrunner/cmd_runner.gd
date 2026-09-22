@@ -420,7 +420,7 @@ func _check_expression(cmd_text: String, check_exec: Array) -> String:
 	var err := expr.parse(const_portion, check_input_names)
 	if err != OK:
 		check_exec[0] = false
-		return remote_prefix + "[color=red]Parse Error:[/color] %s; %s `%s`" % [error_string(err), _bbescape(expr.get_error_text()), _bbescape(const_portion)]
+		return remote_prefix + "[color=red]Parse Error:[/color] %s; %s `%s` (%s)" % [error_string(err), _bbescape(expr.get_error_text()), _bbescape(const_portion), _bbescape(cmd_text)]
 	
 	if not check_exec[0]:
 		# warning was already printed
@@ -445,7 +445,7 @@ func _check_expression(cmd_text: String, check_exec: Array) -> String:
 						_update_warning_label.call_deferred()
 					break
 
-			return remote_prefix + "[color=red]Error:[/color] %s `%s`" % [_bbescape(expr.get_error_text()), _bbescape(const_portion)]
+			return remote_prefix + "[color=red]Error:[/color] %s `%s` (%s)" % [_bbescape(expr.get_error_text()), _bbescape(const_portion), _bbescape(cmd_text)]
 
 	#return ""
 	return remote_prefix + "[color=darkgreen]%s[/color]" % _bbescape(cmd_text)

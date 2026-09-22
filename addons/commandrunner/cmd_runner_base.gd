@@ -182,10 +182,11 @@ func get_all_cmds(remote_only: bool) -> Array[Dictionary]:
 	var cmds: Array[Dictionary] = []
 	for method in _custom_commands.get_method_list():
 		var mname: String = method.name
-		var min_length := 6 # _cmd_ and a name
-		if mname.length() < min_length or not mname.begins_with("_cmd"):
+		var min_length := 5 # cmd_ and a name
+		if mname.length() < min_length or not mname.begins_with("cmd"):
 			continue
-		var flag_index := 4
+		# print("found %s" % mname)
+		var flag_index := 3
 		var flag := mname[flag_index]
 		var is_func_const := false
 		var is_editor_only := false

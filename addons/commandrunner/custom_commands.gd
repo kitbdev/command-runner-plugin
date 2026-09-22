@@ -12,17 +12,17 @@ var cmd_runner_editor: CommandRunner
 ## They return a bool for success, but it is never actually used.
 
 ## test
-# func _cmd_test():
+# func cmd_test():
 # 	print("test method")
 
-# func _cmdc_testc():
+# func cmdc_testc():
 # 	print("testc method")
 
 const BUILTIN_TYPES: Array = ["NIL", "bool", "int", "float", "String", "Vector2", "Vector2I", "Rect2", "Rect2I", "Vector3", "Vector3I", "Transform2D", "Vector4", "Vector4I", "Plane", "Quaternion", "Aabb", "Basis", "Transform3D", "Projection", "Color", "StringName", "NodePath", "Rid", "Object", "Callable", "Signal", "Dictionary", "Array", "PackedByteArray", "PackedInt32Array", "PackedInt64Array", "PackedFloat32Array", "PackedFloat64Array", "PackedStringArray", "PackedVector2Array", "PackedVector3Array", "PackedColorArray", "PackedVector4Array", "MAX", ]
 
 
 ## Output list of commands and variables.
-func _cmdc_help() -> bool:
+func cmdc_help() -> bool:
 	var is_in_editor := cmd_runner_editor != null
 	var cmds := []
 	var cmd_mis := cmd_runner.get_all_cmds(not is_in_editor)
@@ -62,36 +62,36 @@ func _cmdc_help() -> bool:
 	return true
 
 ## Print all Expression input vars.
-func _cmdc_cmdinputs() -> bool:
+func cmdc_cmdinputs() -> bool:
 	cmd_runner.output("inputs: %s\nvars: %s" % [cmd_runner._cmd_input_names, cmd_runner.get_all_vars()], true)
 	return true
 
 ## Toggle verbose output mode
-func _cmd_q() -> bool:
+func cmd_q() -> bool:
 	cmd_runner.verbose_mode = not cmd_runner.verbose_mode
 	cmd_runner.output("verbose mode %s" % cmd_runner.verbose_mode, true)
 	return true
 
 ## Toggle toast output
-func _cmde_toast() -> bool:
+func cmde_toast() -> bool:
 	cmd_runner_editor.toast_output = not cmd_runner_editor.toast_output
 	cmd_runner_editor.output("cmd_runner_editor.toast_output %s" % cmd_runner_editor.toast_output, true)
 	return true
 
 ## Clear history log
-func _cmde_cls() -> bool:
+func cmde_cls() -> bool:
 	cmd_runner_editor.clear_history_container()
 	return true
 
 ## Clear history
-func _cmde_clear() -> bool:
+func cmde_clear() -> bool:
 	# Defer to not add this command to the history
 	cmd_runner_editor.clear_history.call_deferred()
 	return true
 
 # todo find a way to open remotely?
 ## Open Editor Help documentation for the class of the given object.
-func _cmde_docs(target: Object = null) -> bool:
+func cmde_docs(target: Object = null) -> bool:
 	if target == null:
 		cmd_runner.outputerr("No target to open docs!")
 		return false
@@ -99,7 +99,7 @@ func _cmde_docs(target: Object = null) -> bool:
 	return true
 
 ## create a new instance of a class.
-func _cmd_new(var_name: String, opt_class_name := "") -> bool:
+func cmd_new(var_name: String, opt_class_name := "") -> bool:
 	var new_class_name := var_name
 	if opt_class_name != "":
 		new_class_name = opt_class_name
@@ -145,14 +145,14 @@ func _cmd_new(var_name: String, opt_class_name := "") -> bool:
 	return true
 
 ## Create a new variable for later use `var name,value`
-func _cmd_var(var_name: String, value: Variant = null) -> bool:
+func cmd_var(var_name: String, value: Variant = null) -> bool:
 	var prefix_action := "Updated" if cmd_runner.has_var(var_name) else "Saved"
 	if cmd_runner.add_var(var_name, value):
 		cmd_runner.output("%s var `%s` to value `%s`" % [prefix_action, var_name, value], true)
 	return true
 
 ## Remove a variable. Use `allvars` to erase all.
-func _cmd_erase(var_name: String) -> bool:
+func cmd_erase(var_name: String) -> bool:
 	if var_name == "allvars":
 		# erase all
 		cmd_runner.remove_all_vars()
@@ -164,7 +164,7 @@ func _cmd_erase(var_name: String) -> bool:
 	return true
 
 ## Override the base instance for future commands.
-func _cmd_base_instance(obj: Object) -> bool:
+func cmd_base_instance(obj: Object) -> bool:
 	cmd_runner._base_instance_override = obj
 	cmd_runner.output("Base instance overridden to %s" % obj.to_string())
 	return true
@@ -202,7 +202,7 @@ func _get_obj_name(target_obj: Object) -> String:
 	return targ_name
 
 ## Track a signal on an object. Prints a message when the signal fires.
-func _cmd_track(signame: String, target_obj: Object = null) -> bool:
+func cmd_track(signame: String, target_obj: Object = null) -> bool:
 	if target_obj == null:
 		target_obj = cmd_runner.get_base_instance()
 
@@ -231,7 +231,7 @@ func _cmd_track(signame: String, target_obj: Object = null) -> bool:
 	return true
 
 ## Stop tracking a signal on an object, or stop tracking all.
-func _cmd_trackclear(signame: String, target_obj: Object = null) -> bool:
+func cmd_trackclear(signame: String, target_obj: Object = null) -> bool:
 	if signame != "":
 		if target_obj == null:
 			target_obj = cmd_runner.get_base_instance()
@@ -258,7 +258,7 @@ func _cmd_trackclear(signame: String, target_obj: Object = null) -> bool:
 	return true
 
 ## Use EditorDebugger to focus on a node
-func _cmde_focus_on(target: Node = null) -> bool:
+func cmde_focus_on(target: Node = null) -> bool:
 	if target == null or cmd_runner_editor.editor_debugger == null:
 		cmd_runner_editor.output("No target or no EditorDebugger")
 		return false
@@ -275,7 +275,7 @@ func _cmde_focus_on(target: Node = null) -> bool:
 	return true
 
 ## Open in main inspector
-func _cmde_inspectmain(target: Object = null) -> bool:
+func cmde_inspectmain(target: Object = null) -> bool:
 	EditorInterface.inspect_object(target)
 	return true
 
@@ -303,7 +303,7 @@ func _deserialize(target: Object) -> Array:
 	return arr
 
 ## Open in main inspector
-func _cmdr_inspectmain(target: Object = null) -> bool:
+func cmdr_inspectmain(target: Object = null) -> bool:
 	if target == null:
 		# use remote_nothing_selected?
 		cmd_runner.outputerr("No target Object to inspect!")
@@ -325,7 +325,7 @@ func _cmdr_inspectmain(target: Object = null) -> bool:
 	return true
 
 ## Open a new floating inspector
-func _cmde_inspect(target: Object = null) -> bool:
+func cmde_inspect(target: Object = null) -> bool:
 	#if last_result !=null and last_result is Object:
 		#target = last_result
 	#if target == null:
@@ -464,7 +464,7 @@ func _open_in_new_inspector(obj: Object) -> void:
 		(obj as Node).renamed.connect(_set_name.bind(obj))
 
 ## Reload plugin. name is directory name
-func _cmde_reload(plugin_name := "") -> bool:
+func cmde_reload(plugin_name := "") -> bool:
 	if plugin_name.is_empty():
 		# "commandrunner"
 		plugin_name = (get_script() as Script).resource_path.get_base_dir() + "/plugin.cfg"
@@ -482,16 +482,31 @@ func _cmde_reload(plugin_name := "") -> bool:
 
 	return true
 
+## Rnable or disable plugin. name is directory name,
+func cmde_enable_plugin(plugin_name: String, enabled: bool) -> bool:
+	if plugin_name.is_empty():
+		# "commandrunner"
+		plugin_name = (get_script() as Script).resource_path.get_base_dir() + "/plugin.cfg"
+
+	var is_enabled := EditorInterface.is_plugin_enabled(plugin_name)
+	if enabled and is_enabled:
+		cmd_runner.output("Plugin `%s` is already %s" % [plugin_name, ("enabled" if enabled else "disabled")])
+		return true
+
+	EditorInterface.set_plugin_enabled(plugin_name, enabled)
+
+	return true
+
 ## Wait for a duration in seconds, `await sec 2`
-func _cmd_sec(duration := 1.0) -> bool:
+func cmd_sec(duration := 1.0) -> bool:
 	await cmd_runner.get_tree().create_timer(duration).timeout
 	return true
 
 ## Wait for a frame, `await frame`
-func _cmd_frame() -> bool:
+func cmd_frame() -> bool:
 	await cmd_runner.get_tree().process_frame
 	return true
 
-func _cmde_remote_cleanup() -> bool:
+func cmde_remote_cleanup() -> bool:
 	CmdRunnerEditorDebuggerHandler.get_singleton().cleanup()
 	return true
