@@ -6,10 +6,12 @@ var cmd_runner: CommandRunnerBase
 
 var cmd_runner_editor: CommandRunner
 
-## All functions that start with `_cmd_` can be run by typing the rest of the function name. No parenthesis 
-## These may take parameters, comma separated
-## `_cmdc_` are constant and will be executed before submitting
+## All functions that start with `cmd_` can be run by typing the rest of the function name. No parenthesis.
+## These may take parameters, comma separated.
+## After `cmd` are flags on that command. Commands with `c` are constant and can be executed before submitting, to preview the results quickly.
+## `e` is only for editor commands, and cannot be used on the remote game. `r` is only for the remote game and cannot be used in editor.
 ## They return a bool for success, but it is never actually used.
+## Documentation comments above the funciton are parsed to show in the `help` command.
 
 ## test
 # func cmd_test():
@@ -98,7 +100,7 @@ func cmde_docs(target: Object = null) -> bool:
 	EditorInterface.get_script_editor().goto_help("class_name:%s" % target.get_class())
 	return true
 
-## create a new instance of a class.
+## Create a new instance of a class.
 func cmd_new(var_name: String, opt_class_name := "") -> bool:
 	var new_class_name := var_name
 	if opt_class_name != "":
@@ -173,7 +175,6 @@ class SignalTracker extends RefCounted:
 	var vname := ""
 	var name := "unknown signal"
 	var obj_name := "unknown obj"
-	var cmd_runner: CommandRunner = null
 	
 	func report(...args: Array) -> void:
 		var s := "%s: Signal `%s` emitted on `%s` with args `%s`" % [vname, name, obj_name, args]
@@ -207,8 +208,11 @@ func cmd_track(signame: String, target_obj: Object = null) -> bool:
 		target_obj = cmd_runner.get_base_instance()
 
 	var targ_name := _get_obj_name(target_obj)
-	if target_obj == null or not target_obj.has_signal(signame):
-		cmd_runner.outputerr("Cannot track signal `%s` on object `%s`: not found" % [signame, targ_name])
+	if target_obj == null:
+		cmd_runner.outputerr("Cannot track signal `%s` on object `%s`: null" % [signame, targ_name])
+		return true
+	if not target_obj.has_signal(signame):
+		cmd_runner.outputerr("Cannot track signal `%s` on object `%s`: signal not found" % [signame, targ_name])
 		return true
 
 	# get the selected signal from the Signal dock somehow?
@@ -223,7 +227,6 @@ func cmd_track(signame: String, target_obj: Object = null) -> bool:
 	sig_tracker.vname = vname
 	sig_tracker.name = signame
 	sig_tracker.obj_name = targ_name
-	sig_tracker.cmd_runner = cmd_runner
 	target_obj.connect(signame, sig_tracker.report)
 
 	if cmd_runner.add_var(vname, sig_tracker):
